@@ -1,1 +1,1 @@
-# uo_fastapi
+# Library for usefull utitilies use in _uois
