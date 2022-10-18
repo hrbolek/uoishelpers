@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.declarative import DeclarativeMeta as BaseModel
+from sqlalchemy.ext.declarative import DeclarativeMeta as BaseModel
 
 def update(destination, source=None, extraValues={}):
     """Updates destination's attributes with source's attributes. Attributes with value None are not updated."""
