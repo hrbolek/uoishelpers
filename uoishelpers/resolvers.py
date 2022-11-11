@@ -1,5 +1,3 @@
-from optparse import Option
-from types import UnionType
 from typing import Any, Coroutine, Callable, Awaitable, Union, List, Optional
 import uuid
 
