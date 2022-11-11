@@ -341,5 +341,6 @@ def createInsertResolver(DBModel: BaseModel) -> Callable[[AsyncSession, BaseMode
         """
         dbRecord = DBModel()
         result = await putSingleEntityToDb(session, update(dbRecord, data, extraAttributes))
+        await session.commit()
         return result
     return resolveInsert
