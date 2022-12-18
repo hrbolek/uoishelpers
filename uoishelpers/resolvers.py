@@ -124,6 +124,73 @@ def createEntityGetterWithFilter(DBModel: BaseModel):
     return FullResolver
 
 
+def createEntityGetterWR(DBModel: BaseModel, options=None, redis=None) -> Callable[[AsyncSession, int, int], Awaitable[Union[BaseModel, None]]]:
+    """Předkonfiguruje dotaz do databáze na vektor entit
+    
+    Parameters
+    ----------
+    DBModel : BaseModel
+        class representing SQLAlchlemy model - table where record will be found
+    options : any
+        possible to use joinedload from SQLAlchemy for extending the query (select with join)
+
+    Returns
+    -------
+    Callable[[AsyncSession, int, int], Awaitable[DBModel]]
+        asynchronous function for query into database
+    """
+    assert (options is None), "options cannot be used"
+    assert (redis is not None), "redis must be defined"
+    
+    stmt = select(DBModel)
+
+    mapper = sqlalchemy.inspect(DBModel)
+    columnNames = dict((item.columns[0].name, item.columns[0].type) for item in mapper.column_attrs)
+
+    print(columnNames)
+    
+    predefinedSerialisers = {
+        sqlalchemy.Boolean: lambda value: f"{value}",
+        sqlalchemy.String: lambda value: value,
+        sqlalchemy.DateTime: lambda value: f"{value}",
+        uuid.UUID: lambda value: f"{value}",
+        sqlalchemy.BigInteger: lambda value: value,
+    }
+    
+    serialisers = {}
+    for colName, colType in columnNames.items():
+        serialisers[colName] = predefinedSerialisers.get(colType, lambda value: f"{value}")
+        
+    def convertModelToJSON(model: DBModel):
+        result = dict((name, serialisers[name](getattr(model, name))) for name in columnNames.keys())
+        return result
+
+    def convertJSONToModel(jsonData):
+        result = DBModel()
+        for columnName, columnType in columnNames.items():
+            setattr(columnName, serialisers[columnName](jsonData.get(columnName, None)))
+        return result
+
+    def envelopeItem(row):
+        itemAsJson = convertModelToJSON(row)
+        #redis.hset(itemAsJson['id'], json.dumps(itemAsJson))
+        redis.hset(f'{row.id}', mapping=itemAsJson)
+        #redis.set(f'{row.id}', itemAsJson)
+        return row
+
+    def envelopeSequence(scalars):
+        for item in scalars:
+            yield envelopeItem(item)
+
+    async def resultedFunction(session, skip, limit) -> Union[DBModel, None]:
+        """Předkonfigurovaný dotaz bez filtru"""
+        stmtWithFilter = stmt.offset(skip).limit(limit)
+
+        dbSet = await session.execute(stmtWithFilter)
+        result = dbSet.scalars()
+        return envelopeSequence(result)
+
+    return resultedFunction
 
 def createEntityGetter(DBModel: BaseModel, options=None) -> Callable[[AsyncSession, int, int], Awaitable[Union[BaseModel, None]]]:
     """Předkonfiguruje dotaz do databáze na vektor entit
@@ -159,6 +226,81 @@ def createEntityGetter(DBModel: BaseModel, options=None) -> Callable[[AsyncSessi
 
     return resultedFunction
 
+# r = redis.Redis(host='redis', decode_responses=True)
+def createEntityByIdGetterWR(DBModel: BaseModel, options=None, redis=None) -> Callable[[AsyncSession, int, int], Awaitable[Union[BaseModel, None]]]:
+    """Předkonfiguruje dotaz do databáze na entitu podle id
+    
+    Parameters
+    ----------
+    DBModel : BaseModel
+        class representing SQLAlchlemy model - table where record will be found
+    options : any
+        possible to use joinedload from SQLAlchemy for extending the query (select with join)
+
+    Returns
+    -------
+    Callable[[AsyncSession, int, int], Awaitable[DBModel]]
+        asynchronous function for query into database
+    """
+    assert (options is None), "options cannot be used"
+    assert (redis is not None), "redis must be defined"
+    
+    stmt = select(DBModel)
+
+    mapper = sqlalchemy.inspect(DBModel)
+    columnNames = dict((item.columns[0].name, item.columns[0].type) for item in mapper.column_attrs)
+
+    #print(columnNames)
+    
+    predefinedSerialisers = {
+        sqlalchemy.Boolean: lambda value: f"{value}",
+        sqlalchemy.String: lambda value: value,
+        sqlalchemy.DateTime: lambda value: f"{value}",
+        #sqlalchemy.dialects.postgresql.UUID(as_uuid=True): lambda value: f"{value}",
+        uuid.UUID: lambda value: f"{value}",
+        sqlalchemy.BigInteger: lambda value: value,
+    }
+    
+    serialisers = {}
+    for colName, colType in columnNames.items():
+        serialisers[colName] = predefinedSerialisers.get(colType, lambda value: f"{value}")
+        
+    def convertModelToJSON(model: DBModel):
+        result = dict((name, serialisers[name](getattr(model, name))) for name in columnNames.keys())
+        #result = json.dumps(result)
+        #result= result.encode('ascii')
+        return result
+
+    def convertJSONToModel(jsonData):
+        result = DBModel()
+        for columnName, columnType in columnNames.items():
+            setattr(columnName, serialisers[columnName](jsonData.get(columnName, None)))
+        return result
+
+    def envelopeItem(row):
+        itemAsJson = convertModelToJSON(row)
+        #redis.hset(itemAsJson['id'], json.dumps(itemAsJson))
+        rowId = itemAsJson['id']
+        redis.hset(rowId, mapping=itemAsJson)
+        redis.expire(rowId, 30)
+        #redis.set(f'{row.id}', itemAsJson)
+        return row
+
+    async def resultedFunction(session, id) -> Union[DBModel, None]:
+        """Předkonfigurovaný dotaz bez filtru"""
+
+        if redis.exists(id):
+            redisResult = redis.hgetall(id)
+            
+            return convertJSONToModel(redisResult)
+        else:       
+            stmtWithFilter = stmt.filter_by(id=id)
+
+            dbSet = await session.execute(stmtWithFilter)
+            result = next(dbSet.scalars(), None)
+            return envelopeItem(result)
+    
+    return resultedFunction
 
 def createEntityByIdGetter(DBModel: BaseModel, options=None) -> Callable[[AsyncSession, uuid.UUID], Awaitable[Union[BaseModel, None]]]:
     """Předkonfiguruje dotaz do databáze na entitu podle id
