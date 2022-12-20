@@ -33,6 +33,8 @@ from sqlalchemy.future import select
 
 #     pass
 
+import re
+
 async def putPredefinedStructuresIntoTable(asyncSessionMaker, DBModel, structureFunction):
     """Zabezpeci prvotni inicicalizaci zaznamu v databazi
        DBModel zprostredkovava tabulku,
@@ -68,17 +70,37 @@ async def putPredefinedStructuresIntoTable(asyncSessionMaker, DBModel, structure
 
     # zjistime, ktera id nejsou v databazi
     unsavedRows = list(filter(lambda row: not(f'{row["id"]}' in idsInDatabase), externalIdTypes))
-    
-    # pro vsechna neulozena id vytvorime entity
-    # omezime se jen na atributy, ktere jsou definovane v modelu
-    mappedUnsavedRows = list(map(mapToCols, unsavedRows))
-    rowsToAdd = [DBModel(**row) for row in mappedUnsavedRows]
 
-    # a vytvorene entity jednou operaci vlozime do databaze
-    async with asyncSessionMaker() as session:
-        async with session.begin():
-            session.add_all(rowsToAdd)
-        await session.commit()
+    async def saveChunk(rows):
+        # pro vsechna neulozena id vytvorime entity
+        # omezime se jen na atributy, ktere jsou definovane v modelu
+        mappedUnsavedRows = list(map(mapToCols, rows))
+        rowsToAdd = [DBModel(**row) for row in mappedUnsavedRows]
+
+        # a vytvorene entity jednou operaci vlozime do databaze
+        async with asyncSessionMaker() as session:
+            async with session.begin():
+                session.add_all(rowsToAdd)
+            await session.commit()
+
+    if len(unsavedRows) > 0:
+        # je co ukladat
+        if '_chunk' in unsavedRows[0]:
+            # existuje informace o rozfazovani ukladani do tabulky
+            nextPhase =  [*unsavedRows]
+            while len(nextPhase) > 0:
+                #zjistime nejmensi cislo poradi ukladani 
+                chunkNumber = min(map(lambda item: item['_chunk'], nextPhase))
+                #filtrujeme radky, ktere maji toto cislo
+                toSave = list(filter(lambda item: item['_chunk'] == chunkNumber, nextPhase))
+                #ostatni nechame na pozdeji
+                nextPhase = list(filter(lambda item: item['_chunk'] != chunkNumber, nextPhase))
+                #ulozime vybrane
+                await saveChunk(toSave)
+        else:
+            # vsechny zaznamy mohou byt ulozeny soucasne
+            await saveChunk(unsavedRows)
+
 
     # jeste jednou se dotazeme do databaze
     stmt = select(DBModel)
