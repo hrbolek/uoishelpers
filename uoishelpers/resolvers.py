@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Coroutine, Callable, Awaitable, Union, List, Optional
 import uuid
 
@@ -471,8 +472,9 @@ def createUpdateResolver(DBModel: BaseModel, safe=False) -> Callable[[AsyncSessi
         stmt = select(DBModel).filter_by(id=id)
         dbSet = await session.execute(stmt)
         dbRecord = dbSet.scalars().first()
-
+        
         if dbRecord.lastchange == data.lastchange:
+            data.lastchange = datetime.datetime.now()
             result = update(dbRecord, data, extraAttributes)
             await session.commit()
         else:
