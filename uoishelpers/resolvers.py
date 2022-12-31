@@ -472,11 +472,11 @@ def createUpdateResolver(DBModel: BaseModel, safe=False) -> Callable[[AsyncSessi
         dbSet = await session.execute(stmt)
         dbRecord = dbSet.scalars().first()
 
-        if dbRecord.lastupdate == data['lastupdate']:
+        if dbRecord.lastchange == data['lastchange']:
             result = update(dbRecord, data, extraAttributes)
             await session.commit()
         else:
-            result = None # signal that someone updated meanwhile
+            result = dbRecord # someone updated meanwhile, return currentRecord
 
         return result
     return (resolveUpdateSafe if safe else resolveUpdate)
