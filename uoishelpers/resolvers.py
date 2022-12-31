@@ -472,7 +472,7 @@ def createUpdateResolver(DBModel: BaseModel, safe=False) -> Callable[[AsyncSessi
         dbSet = await session.execute(stmt)
         dbRecord = dbSet.scalars().first()
 
-        if dbRecord.lastchange == data['lastchange']:
+        if dbRecord.lastchange == data.lastchange:
             result = update(dbRecord, data, extraAttributes)
             await session.commit()
         else:
