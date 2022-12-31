@@ -414,7 +414,7 @@ def create1NGetter(ResultedDBModel: BaseModel, foreignKeyName, options=None, fil
     else:
         return resultedFunctionWithFilters
 
-def createUpdateResolver(DBModel: BaseModel) -> Callable[[AsyncSession, uuid.UUID, dict], Awaitable[BaseModel]]:
+def createUpdateResolver(DBModel: BaseModel, safe=False) -> Callable[[AsyncSession, uuid.UUID, dict], Awaitable[BaseModel]]:
     """Create update asynchronous resolver for DBmodel (SQLAlchemy)
     
     Parameters
@@ -450,7 +450,36 @@ def createUpdateResolver(DBModel: BaseModel) -> Callable[[AsyncSession, uuid.UUI
         result = update(dbRecord, data, extraAttributes)
         await session.commit()
         return result
-    return resolveUpdate
+
+    async def resolveUpdateSafe(session: AsyncSession, id: uuid.UUID, data: dict, extraAttributes={}) -> Awaitable[DBModel]:
+        """Updates a record with id=id according give data
+
+        Parameters
+        ----------
+        DBModel : BaseModel
+            the model (SQLAlchemy) which table contains a record being updated
+        session : AsyncSession
+            asynchronous session object which allows the update
+        data : class
+            datastructure holding the data for the update
+
+        Returns
+        ----------
+        DBModel
+            datastructure with updated items
+        """
+        stmt = select(DBModel).filter_by(id=id)
+        dbSet = await session.execute(stmt)
+        dbRecord = dbSet.scalars().first()
+
+        if dbRecord.lastupdate == data['lastupdate']:
+            result = update(dbRecord, data, extraAttributes)
+            await session.commit()
+        else:
+            result = None # signal that someone updated meanwhile
+
+        return result
+    return (resolveUpdateSafe if safe else resolveUpdate)
 
 def createInsertResolver(DBModel: BaseModel) -> Callable[[AsyncSession, BaseModel, dict], Awaitable[BaseModel]]:
     """Create insert asynchronous resolver for DBmodel (SQLAlchemy)
