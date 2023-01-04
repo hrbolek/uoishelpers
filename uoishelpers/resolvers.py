@@ -372,7 +372,7 @@ def create1NGetter(ResultedDBModel: BaseModel, foreignKeyName, options=None, fil
         result = dbSet.scalars()
         return result
 
-    async def resultedFunction(session: AsyncSession, id: uuid.UUID) -> List[ResultedDBModel]:
+    async def resultedFunction(session: AsyncSession, id: uuid.UUID, skip: int = 0, limit: int = 100) -> List[ResultedDBModel]:
         """Predkonfigurovany dotaz bez filtru
         
         Parameters
@@ -388,10 +388,10 @@ def create1NGetter(ResultedDBModel: BaseModel, foreignKeyName, options=None, fil
             vector of entities (1:N or M:N)
         """
         filterQuery = {foreignKeyName: id}
-        stmtWithFilter = stmt.filter_by(**filterQuery)
+        stmtWithFilter = stmt.filter_by(**filterQuery).offset(skip).limit(limit)
         return await ExecuteAndGetList(session, stmtWithFilter)
 
-    async def resultedFunctionWithFilters(session: AsyncSession, id: uuid.UUID) -> List[ResultedDBModel]:
+    async def resultedFunctionWithFilters(session: AsyncSession, id: uuid.UUID, skip: int = 0, limit: int = 100) -> List[ResultedDBModel]:
         """Predkonfigurovany dotaz s filtrem
         
         Parameters
@@ -407,7 +407,7 @@ def create1NGetter(ResultedDBModel: BaseModel, foreignKeyName, options=None, fil
             vector of entities (1:N or M:N)
         """
         filterQuery = {**filters, foreignKeyName: id}
-        stmtWithFilter = stmt.filter_by(**filterQuery)
+        stmtWithFilter = stmt.filter_by(**filterQuery).offset(skip).limit(limit)
         return await ExecuteAndGetList(session, stmtWithFilter)
 
     if filters is None:
