@@ -8,6 +8,150 @@ from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.declarative import DeclarativeMeta as BaseModel
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def withInfo(info):
+    """Context manager for session created from info.context['asyncSessionMaker']."""
+    asyncSessionMaker = info.context['asyncSessionMaker']
+    async with asyncSessionMaker() as session:
+        try:
+            yield session
+        finally:
+            pass
+
+from strawberry.types.types import TypeDefinition
+from strawberry.utils.inspect import get_func_args
+from graphql import GraphQLObjectType, GraphQLError
+from functools import partial
+from typing import cast
+import inspect
+import asyncio
+
+def entities_resolver(self, root, info, representations):
+    """Allows to call appropriate GQL model for reverence resolving. 
+    Implements ability to use single query to database with multiple results. """
+    results = []
+    typeDict = {}
+    for index, representation in enumerate(representations):
+        type_name = representation.pop("__typename")
+        type_ = self.schema_converter.type_map[type_name]
+        typeRow = typeDict.get(type_name, None)
+        if typeRow is None:
+            typeRow = {
+                    'type': type_, 
+                    'questions': [],
+                    'indexes': [],
+                    'results': []
+                    }
+            typeDict[type_name] = typeRow
+            definition = cast(TypeDefinition, type_.definition)
+            keyNames = list(representation.keys())
+            #keyValues = list(representation.values())
+            if hasattr(definition.origin, "resolve_references") and (len(keyNames) == 1):
+                keyName = keyNames[0]
+                typeRow['lazy'] = True
+                #typeRow['solved'] = False
+
+                resolve_references = definition.origin.resolve_references
+
+                func_args = get_func_args(resolve_references)
+
+                def getResult():
+                    keyValues = typeRow['questions']
+                    kwargs = {}
+                    kwargs[keyName] = list(map(lambda item: item[keyName], keyValues))
+                    # TODO: use the same logic we use for other resolvers
+                    if "info" in func_args:
+                        kwargs["info"] = info
+                    return resolve_references(**kwargs)
+
+                if keyName not in func_args:
+                    result = GraphQLError(
+                        f"Got confused while trying use resolve_references for {definition.origin}. Resolver resolve_references has not a prameter {keyNames[0]}"
+                        )
+                    get_result = lambda: [result] * len(typeRow['questions'])
+                #get_result = partial(resolve_references, **kwargs)
+                else:
+                    get_result = getResult
+                typeRow['get_result'] = get_result
+            elif hasattr(definition.origin, "resolve_reference"):
+                typeRow['lazy'] = False
+
+                resolve_reference = definition.origin.resolve_reference
+
+                func_args = get_func_args(resolve_reference)
+
+                # TODO: use the same logic we use for other resolvers
+                if "info" in func_args:
+                    def getResult(representation):
+                        return resolve_references(info=info, **representation)
+                else:
+                    getResult = representation
+
+                typeRow['get_result'] = getResult
+            else:
+                from strawberry.arguments import convert_argument
+
+                typeRow['lazy'] = False
+                strawberry_schema = info.schema.extensions["strawberry-definition"]
+                config = strawberry_schema.config
+                scalar_registry = strawberry_schema.schema_converter.scalar_registry
+
+                # get_result = partial(
+                #     convert_argument,
+                #     representation,
+                #     type_=definition.origin,
+                #     scalar_registry=scalar_registry,
+                #     config=config,
+                # )
+
+                def create_get_result(convert_argument,
+                    type_=definition.origin,
+                    scalar_registry=scalar_registry,
+                    config=config):
+                    
+                    return lambda representation: convert_argument(representation, 
+                        type_=definition.origin,
+                        scalar_registry=scalar_registry,
+                        config=config)
+                typeRow['get_result'] = create_get_result(convert_argument, type_=definition.origin, scalar_registry=scalar_registry,
+                    config=config)
+        typeRow['indexes'].append(index)
+        typeRow['questions'].append(representation)
+
+
+    async def awaitableWrapper(index, row):
+        semaphore = row['semaphore']
+        listOfIndexes = row['indexes']
+        indexOf = listOfIndexes.index(index)
+        async with semaphore:
+            listOfResults = row['results']
+            if inspect.isawaitable(listOfResults):
+                listOfResults = await listOfResults
+                row['results'] = listOfResults
+            singleResult = listOfResults[indexOf]
+        return singleResult
+
+    indexedResults = []
+    for entityName, row in typeDict.items():
+        if row['lazy']:
+            row['semaphore'] = asyncio.BoundedSemaphore(1)
+
+            get_result = row['get_result']
+            result = get_result()
+            row['results'] = result
+            indexedResults.extend([(index, awaitableWrapper(index, row)) for index in row['indexes']])
+        else:
+            get_result = row['get_result']
+            row['results'] = [get_result(item) for item in row['questions']]
+            indexedResults.extend([(index, result) for index, result in zip(row['indexes'], row['results'])])
+        
+    indexedResults.sort(key=lambda a: a[0])
+    results = list(map(lambda item: item[1], indexedResults))
+    return results
+
+
 def update(destination, source=None, extraValues={}):
     """Updates destination's attributes with source's attributes. Attributes with value None are not updated."""
     if source is not None:
@@ -366,13 +510,19 @@ def create1NGetter(ResultedDBModel: BaseModel, foreignKeyName, options=None, fil
         else:
             stmt = select(ResultedDBModel).options(options)
 
+    if filters is not None:
+        if isinstance(filters, list):
+            stm = stm.filter(*filters)
+        else:
+            stm = stm.filter(filters)
+
     async def ExecuteAndGetList(session: AsyncSession, stmt):
         """"Sdilena funkce pro resolvery"""
         dbSet = await session.execute(stmt)
         result = dbSet.scalars()
         return result
 
-    async def resultedFunction(session: AsyncSession, id: uuid.UUID, skip: int = 0, limit: int = 100) -> List[ResultedDBModel]:
+    async def resultedFunction(session: AsyncSession, id: uuid.UUID, skip: int = 0, limit: int = 100, filters=None) -> List[ResultedDBModel]:
         """Predkonfigurovany dotaz bez filtru
         
         Parameters
@@ -387,8 +537,15 @@ def create1NGetter(ResultedDBModel: BaseModel, foreignKeyName, options=None, fil
         List[ResultedDBModel]
             vector of entities (1:N or M:N)
         """
+        stmtWithFilter = stm
+        if filters is not None:
+            if isinstance(filters, list):
+                stmtWithFilter = stmtWithFilter.filter(*filters)
+            else:
+                stmtWithFilter = stmtWithFilter.filter(filters)
+
         filterQuery = {foreignKeyName: id}
-        stmtWithFilter = stmt.filter_by(**filterQuery).offset(skip).limit(limit)
+        stmtWithFilter = stmtWithFilter.filter_by(**filterQuery).offset(skip).limit(limit)
         return await ExecuteAndGetList(session, stmtWithFilter)
 
     async def resultedFunctionWithFilters(session: AsyncSession, id: uuid.UUID, skip: int = 0, limit: int = 100) -> List[ResultedDBModel]:
@@ -410,10 +567,11 @@ def create1NGetter(ResultedDBModel: BaseModel, foreignKeyName, options=None, fil
         stmtWithFilter = stmt.filter_by(**filterQuery).offset(skip).limit(limit)
         return await ExecuteAndGetList(session, stmtWithFilter)
 
-    if filters is None:
-        return resultedFunction
-    else:
-        return resultedFunctionWithFilters
+    # if filters is None:
+    #     return resultedFunction
+    # else:
+    #     return resultedFunctionWithFilters
+    return resultedFunction
 
 import datetime
 def createUpdateResolver(DBModel: BaseModel, safe=False) -> Callable[[AsyncSession, uuid.UUID, dict], Awaitable[BaseModel]]:
@@ -518,3 +676,6 @@ def createInsertResolver(DBModel: BaseModel) -> Callable[[AsyncSession, BaseMode
         await session.commit()
         return result
     return resolveInsert
+
+
+
