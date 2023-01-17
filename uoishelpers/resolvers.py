@@ -512,9 +512,9 @@ def create1NGetter(ResultedDBModel: BaseModel, foreignKeyName, options=None, fil
 
     if filters is not None:
         if isinstance(filters, list):
-            stm = stm.filter(*filters)
+            stmt = stmt.filter(*filters)
         else:
-            stm = stm.filter(filters)
+            stmt = stmt.filter(filters)
 
     async def ExecuteAndGetList(session: AsyncSession, stmt):
         """"Sdilena funkce pro resolvery"""
@@ -537,7 +537,7 @@ def create1NGetter(ResultedDBModel: BaseModel, foreignKeyName, options=None, fil
         List[ResultedDBModel]
             vector of entities (1:N or M:N)
         """
-        stmtWithFilter = stm
+        stmtWithFilter = stmt
         if filters is not None:
             if isinstance(filters, list):
                 stmtWithFilter = stmtWithFilter.filter(*filters)
