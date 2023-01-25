@@ -1,0 +1,8 @@
+black
+flake8
+mypy
+pytest
+httpx
+aiosqlite
+pytest-cov
+pytest-asyncio

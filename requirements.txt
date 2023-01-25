@@ -1,0 +1,3 @@
+sqlalchemy
+strawberry-graphql
+aiodataloader
