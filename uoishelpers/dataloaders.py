@@ -83,6 +83,6 @@ def createFkeyLoader(asyncSessionMaker, dbModel, foreignKeyName=None):
                     groupedResult = groupedResults[foreignKeyValue]
                     groupedResult.append(row)
                 return (groupedResults.values())   
-    return Loader
+    return Loader(cache=True)
 
     
