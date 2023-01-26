@@ -64,3 +64,25 @@ def createIdLoader(asyncSessionMaker, dbModel):
 
 
     return Loader(cache=True)
+
+def createFkeyLoader(asyncSessionMaker, dbModel, foreignKeyName=None):
+    assert foreignKeyName is not None, "foreignKeyName must be defined"
+    foreignKeyNameAttribute = getattr(dbModel, foreignKeyName)
+    mainstmt = select(dbModel).order_by(foreignKeyNameAttribute)
+    filtermethod = dbModel.id.in_
+    class Loader(DataLoader):
+        async def batch_load_fn(self, keys):
+            #print('batch_load_fn', keys, flush=True)
+            async with asyncSessionMaker() as session:
+                statement = mainstmt.filter(filtermethod(keys))
+                rows = await session.execute(statement)
+                rows = rows.scalars()
+                groupedResults = dict((key, [])  for key in keys)
+                for row in rows:
+                    foreignKeyValue = getattr(row, foreignKeyName)
+                    groupedResult = groupedResults[foreignKeyValue]
+                    groupedResult.append(row)
+                return (groupedResults.values())   
+    return Loader
+
+    
