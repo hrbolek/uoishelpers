@@ -13,7 +13,13 @@ def createIdLoader(asyncSessionMaker, dbModel):
             async with asyncSessionMaker() as session:
                 statement = mainstmt.filter(filtermethod(keys))
                 rows = await session.execute(statement)
-                return (rows.scalars())
+                rows = rows.scalars()
+                #return rows
+                datamap = {}
+                for row in rows:
+                    datamap[row.id] = row
+                result = [datamap.get(id, None) for id in keys]
+                return result
 
         async def insert(self, entity):
             async with asyncSessionMaker() as session:

@@ -145,6 +145,42 @@ async def test_loader_load_multi():
     for dr, rr in zip(data, result):
         assert dr == rr
 
+
+@pytest.mark.asyncio
+async def test_loader_load_multi_same():
+    [async_session_maker, UserModel, *_] = await prepare_in_memory_sqllite()
+
+    data = [
+        {'id': '1', 'name': 'John', 'surname': 'Newbie', 'email': 'john.newbie@world.com'},
+        {'id': '2', 'name': 'Julia', 'surname': 'Newbie', 'email': 'julia.newbie@world.com'},
+        {'id': '3', 'name': 'Johnson', 'surname': 'Newbie', 'email': 'johnson.newbie@world.com'},
+        {'id': '4', 'name': 'Jepeto', 'surname': 'Newbie', 'email': 'jepeto.newbie@world.com'},
+    ]
+
+    from uoishelpers.feeders import putPredefinedStructuresIntoTable
+
+    await putPredefinedStructuresIntoTable(async_session_maker, UserModel, lambda:data)
+
+    from uoishelpers.dataloaders import createIdLoader
+
+    userLoader = createIdLoader(async_session_maker, UserModel)
+
+    id0 = data[0]['id']
+    ids = [id0 for item in data]
+    ids.append('x')
+
+    print(ids)
+    loadings = (userLoader.load(key=id) for id in ids)
+    rows = await asyncio.gather(*loadings)
+
+    result = [{'id': u.id, 'name': u.name, 'surname': u.surname, 'email': u.email} if u is not None else None for u in rows]
+    assert len(result) == len(data) + 1
+    for r in result:
+        if r is not None:
+            assert r['id'] == id0
+    assert r is None
+
+
 @pytest.mark.asyncio
 async def test_loader_execute_select():
     [async_session_maker, UserModel, *_] = await prepare_in_memory_sqllite()
