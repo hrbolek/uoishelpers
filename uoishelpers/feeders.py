@@ -88,8 +88,12 @@ async def putPredefinedStructuresIntoTable(
                 # ulozime vybrane
                 await saveChunk(toSave)
         else:
-            # vsechny zaznamy mohou byt ulozeny soucasne
-            await saveChunk(unsavedRows)
+            # vsechny zaznamy mohou byt ulozeny soucasne, 
+            # ukladame po blocich
+            while (len(unsavedRows) > 0):
+                rowsToSave = unsavedRows[:30]
+                await saveChunk(rowsToSave)
+                unsavedRows = unsavedRows[30:]
 
     # jeste jednou se dotazeme do databaze
     stmt = select(DBModel)

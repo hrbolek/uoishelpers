@@ -8,7 +8,7 @@ from graphql import GraphQLObjectType, GraphQLError
 from functools import partial
 from typing import cast
 
-from datetime import datetime
+import datetime
 from typing import Any, Coroutine, Callable, Awaitable, Union, List, Optional
 
 from sqlalchemy.future import select
