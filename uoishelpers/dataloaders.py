@@ -22,8 +22,10 @@ def createIdLoader(asyncSessionMaker, dbModel):
                 return result
 
         async def insert(self, entity):
+            newdbrow = dbModel()
+            newdbrow = update(newdbrow, entity)
             async with asyncSessionMaker() as session:
-                session.add(entity)
+                session.add(newdbrow)
                 await session.commit()
                 self.clear(entity.id)
                 self.prime(entity.id, entity)
@@ -34,7 +36,7 @@ def createIdLoader(asyncSessionMaker, dbModel):
             rowToUpdate = await self.load(entity.id)
             #print('loaded', rowToUpdate.id, rowToUpdate.name)
             if (dochecks and (entity.lastchange != rowToUpdate.lastchange)):
-                result = rowToUpdate
+                result = None
             else:
                 if dochecks:
                     entity.lastchange = datetime.datetime.now()
@@ -51,16 +53,25 @@ def createIdLoader(asyncSessionMaker, dbModel):
 
             return result
 
-        async def execute_select(self, statement):
-            def registerResult(result):
-                self.clear(result.id)
-                self.prime(result.id, result)
-                return result
+        def registerResult(self, result):
+            self.clear(result.id)
+            self.prime(result.id, result)
+            return result
 
+        async def execute_select(self, statement):
             async with asyncSessionMaker() as session:
                 rows = await session.execute(statement)
                 return (
-                    registerResult(row)
+                    self.registerResult(row)
+                    for row in rows.scalars()
+                )
+            
+        async def filter_by(self, **filters):
+            statement = mainstmt.filter_by(**filters)
+            async with asyncSessionMaker() as session:
+                rows = await session.execute(statement)
+                return (
+                    self.registerResult(row)
                     for row in rows.scalars()
                 )
 
