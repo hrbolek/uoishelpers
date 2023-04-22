@@ -23,13 +23,16 @@ def createIdLoader(asyncSessionMaker, dbModel):
 
         async def insert(self, entity):
             newdbrow = dbModel()
+            #print("insert", newdbrow, newdbrow.id, newdbrow.name, flush=True)
             newdbrow = update(newdbrow, entity)
             async with asyncSessionMaker() as session:
+                #print("insert", newdbrow, newdbrow.id, newdbrow.name, flush=True)
                 session.add(newdbrow)
                 await session.commit()
-                self.clear(entity.id)
-                self.prime(entity.id, entity)
-                return entity
+            #self.clear(newdbrow.id)
+            #self.prime(newdbrow.id, newdbrow)
+            #print("insert", newdbrow, newdbrow.id, newdbrow.name, flush=True)
+            return newdbrow
 
         async def update(self, entity, extraValues={}):
             dochecks = hasattr(entity, 'lastchange')               
