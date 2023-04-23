@@ -35,25 +35,44 @@ def createIdLoader(asyncSessionMaker, dbModel):
             return newdbrow
 
         async def update(self, entity, extraValues={}):
-            dochecks = hasattr(entity, 'lastchange')               
-            rowToUpdate = await self.load(entity.id)
-            #print('loaded', rowToUpdate.id, rowToUpdate.name)
-            if (dochecks and (entity.lastchange != rowToUpdate.lastchange)):
-                result = None
-            else:
-                if dochecks:
-                    entity.lastchange = datetime.datetime.now()
+            async with asyncSessionMaker() as session:
+                statement = mainstmt.filter_by(id=entity.id)
+                rows = await session.execute(statement)
+                rows = rows.scalars()
+                rowToUpdate = next(rows, None)
 
-                async with asyncSessionMaker() as session:
+                if rowToUpdate is None:
+                    return None
+
+                dochecks = hasattr(rowToUpdate, 'lastchange')             
+                checkpassed = True  
+                #print('loaded', rowToUpdate)
+                #print('loaded', rowToUpdate.id, rowToUpdate.name)
+                if (dochecks):
+                    #print('checking', flush=True)
+                    if (entity.lastchange != rowToUpdate.lastchange):
+                        #print('checking failed', flush=True)
+                        result = None
+                        checkpassed = False                        
+                    else:
+                        entity.lastchange = datetime.datetime.now()
+                        #print(entity)           
+                if checkpassed:
                     rowToUpdate = update(rowToUpdate, entity, extraValues=extraValues)
-                    #print('updated', rowToUpdate.id, rowToUpdate.name)
+                    #print('updated', rowToUpdate.id, rowToUpdate.name, rowToUpdate.lastchange)
                     await session.commit()
-                    #print('after commit', rowToUpdate.id, rowToUpdate.name)
+                    #print('after commit', rowToUpdate.id, rowToUpdate.name, rowToUpdate.lastchange)
+                    #print('after commit', row.id, row.name, row.lastchange)
                     result = rowToUpdate
-                    self.clear(result.id)
-                    self.prime(result.id, result)
-                    #self.clear_all()
-
+                    self.registerResult(result)
+                
+                #self.clear_all()
+            # cacherow = await self.load(result.id)
+            # print("cacherow", cacherow, flush=True)
+            # print("cacherow", cacherow.name, cacherow.id, flush=True)
+            # print("cacherow", list(self._cache.keys()), flush=True)
+            # cachevalue = await self._cache.get(entity.id)
+            # print("cacherow", cachevalue.id, cachevalue.name, flush=True)
             return result
 
         def registerResult(self, result):
