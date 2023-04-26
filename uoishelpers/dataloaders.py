@@ -97,6 +97,15 @@ def createIdLoader(asyncSessionMaker, dbModel):
                     for row in rows.scalars()
                 )
 
+        async def page(self, skip=0, limit=10):
+            statement = mainstmt.skip(skip).limit(limit)
+            async with asyncSessionMaker() as session:
+                rows = await session.execute(statement)
+                return (
+                    self.registerResult(row)
+                    for row in rows.scalars()
+                )
+            
         def set_cache(self, cache_object):
             self.cache = True
             self._cache = cache_object
