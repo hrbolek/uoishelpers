@@ -98,7 +98,7 @@ def createIdLoader(asyncSessionMaker, dbModel):
                 )
 
         async def page(self, skip=0, limit=10):
-            statement = mainstmt.skip(skip).limit(limit)
+            statement = mainstmt.offset(skip).limit(limit)
             async with asyncSessionMaker() as session:
                 rows = await session.execute(statement)
                 return (

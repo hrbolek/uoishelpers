@@ -290,8 +290,8 @@ async def test_loader_update_with_lastchange():
     newLastchange = item.lastchange
     newName = 'Chappie'
     item = await userLoader.update(UserModel(id=ids[-1], name=newName, lastchange=now))
-    assert item.name != newName
-    assert item.lastchange == newLastchange
+    assert item is None
+    
 
 
 @pytest.mark.asyncio
@@ -365,6 +365,43 @@ async def test_loader_external_cache():
 
     rows = list(externalcache.values())
     rows = [row.result() for row in rows]
+
+    result = [{'id': u.id, 'name': u.name, 'surname': u.surname, 'email': u.email} for u in rows]
+    #print('result[3]', result[3])
+    print(result)
+
+
+    assert data[0] == result[0]
+    assert data[1] == result[1]
+    assert data[2] == result[2]
+    assert data[3] == result[3]
+
+
+@pytest.mark.asyncio
+async def test_loader_page():
+    [async_session_maker, UserModel, *_] = await prepare_in_memory_sqllite()
+
+    data = [
+        {'id': '1', 'name': 'John', 'surname': 'Newbie', 'email': 'john.newbie@world.com'},
+        {'id': '2', 'name': 'Julia', 'surname': 'Newbie', 'email': 'julia.newbie@world.com'},
+        {'id': '3', 'name': 'Johnson', 'surname': 'Newbie', 'email': 'johnson.newbie@world.com'},
+        {'id': '4', 'name': 'Jepeto', 'surname': 'Newbie', 'email': 'jepeto.newbie@world.com'},
+    ]
+
+    from uoishelpers.feeders import putPredefinedStructuresIntoTable
+
+    await putPredefinedStructuresIntoTable(async_session_maker, UserModel, lambda:data)
+
+    from uoishelpers.dataloaders import createIdLoader
+
+    
+    userLoader = createIdLoader(async_session_maker, UserModel)
+
+    ids = [item['id'] for item in data]
+
+    loadings = (userLoader.load(key=id) for id in ids)
+    rows = await asyncio.gather(*loadings)
+    rows = await userLoader.page(skip=0, limit=1000)
 
     result = [{'id': u.id, 'name': u.name, 'surname': u.surname, 'email': u.email} for u in rows]
     #print('result[3]', result[3])
