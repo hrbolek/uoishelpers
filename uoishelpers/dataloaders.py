@@ -80,6 +80,9 @@ def createIdLoader(asyncSessionMaker, dbModel):
             self.prime(result.id, result)
             return result
 
+        def getSelectStatement(self):
+            return select(dbModel)
+        
         async def execute_select(self, statement):
             async with asyncSessionMaker() as session:
                 rows = await session.execute(statement)
