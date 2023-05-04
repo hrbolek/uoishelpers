@@ -21,10 +21,10 @@ def createIdLoader(asyncSessionMaker, dbModel):
                 result = [datamap.get(id, None) for id in keys]
                 return result
 
-        async def insert(self, entity):
+        async def insert(self, entity, extraAttributes={}):
             newdbrow = dbModel()
             #print("insert", newdbrow, newdbrow.id, newdbrow.name, flush=True)
-            newdbrow = update(newdbrow, entity)
+            newdbrow = update(newdbrow, entity, extraAttributes)
             async with asyncSessionMaker() as session:
                 #print("insert", newdbrow, newdbrow.id, newdbrow.name, flush=True)
                 session.add(newdbrow)

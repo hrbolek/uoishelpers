@@ -335,6 +335,47 @@ async def test_loader_insert():
     assert result[4]['name'] == newName
     assert result[4]['id'] == newId
 
+@pytest.mark.asyncio
+async def test_loader_insert_extraattrs():
+    [async_session_maker, UserModel, *_] = await prepare_in_memory_sqllite()
+
+    data = [
+        {'id': '1', 'name': 'John', 'surname': 'Newbie', 'email': 'john.newbie@world.com'},
+        {'id': '2', 'name': 'Julia', 'surname': 'Newbie', 'email': 'julia.newbie@world.com'},
+        {'id': '3', 'name': 'Johnson', 'surname': 'Newbie', 'email': 'johnson.newbie@world.com'},
+        {'id': '4', 'name': 'Jepeto', 'surname': 'Newbie', 'email': 'jepeto.newbie@world.com'},
+    ]
+
+    from uoishelpers.feeders import putPredefinedStructuresIntoTable
+
+    await putPredefinedStructuresIntoTable(async_session_maker, UserModel, lambda:data)
+
+    from uoishelpers.dataloaders import createIdLoader
+
+    userLoader = createIdLoader(async_session_maker, UserModel)
+
+    ids = [item['id'] for item in data]
+
+    newId = '-1'
+    newName = "Chandler"    
+    await userLoader.insert(None, {"id": newId, "name": newName})
+
+    ids.append(newId)
+    loadings = (userLoader.load(key=id) for id in ids)
+    rows = await asyncio.gather(*loadings)
+
+    result = [{'id': u.id, 'name': u.name, 'surname': u.surname, 'email': u.email} for u in rows]
+    #print('result[3]', result[3])
+
+    assert data[0] == result[0]
+    assert data[1] == result[1]
+    assert data[2] == result[2]
+    assert data[3] == result[3]
+
+    assert len(result) == 5
+    assert result[4]['name'] == newName
+    assert result[4]['id'] == newId
+
 
 
 @pytest.mark.asyncio
