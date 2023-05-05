@@ -1,7 +1,7 @@
 import datetime
 
 from aiodataloader import DataLoader
-from uoishelpers.resolvers import select, update
+from uoishelpers.resolvers import select, update, delete
 
 def createIdLoader(asyncSessionMaker, dbModel):
 
@@ -75,6 +75,12 @@ def createIdLoader(asyncSessionMaker, dbModel):
             # print("cacherow", cachevalue.id, cachevalue.name, flush=True)
             return result
 
+        async def delete(self, id):
+            statement = delete(dbModel).where(dbModel.id==id)
+            async with asyncSessionMaker() as session:
+                result = await session.execute(statement)
+                return result
+
         def registerResult(self, result):
             self.clear(result.id)
             self.prime(result.id, result)
@@ -82,6 +88,12 @@ def createIdLoader(asyncSessionMaker, dbModel):
 
         def getSelectStatement(self):
             return select(dbModel)
+        
+        def getModel(self):
+            return dbModel
+        
+        def getAsyncSessionMaker(self):
+            return asyncSessionMaker
         
         async def execute_select(self, statement):
             async with asyncSessionMaker() as session:
@@ -141,4 +153,15 @@ def createFkeyLoader(asyncSessionMaker, dbModel, foreignKeyName=None):
                 return (groupedResults.values())   
     return Loader(cache=True)
 
+from functools import cache
+
+async def createLoaders(asyncSessionMaker, models):
+    def createLambda(loaderName, DBModel):
+        return lambda self: createIdLoader(asyncSessionMaker, DBModel)
     
+    attrs = {}
+    for key, DBModel in models.items():
+        attrs[key] = property(cache(createLambda(key, DBModel)))
+    
+    Loaders = type('Loaders', (), attrs)   
+    return Loaders()   

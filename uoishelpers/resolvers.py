@@ -12,6 +12,7 @@ import datetime
 from typing import Any, Coroutine, Callable, Awaitable, Union, List, Optional
 
 from sqlalchemy.future import select
+from sqlalchemy import delete
 from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.declarative import DeclarativeMeta as BaseModel
