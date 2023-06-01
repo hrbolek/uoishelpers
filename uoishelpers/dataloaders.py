@@ -79,6 +79,7 @@ def createIdLoader(asyncSessionMaker, dbModel):
             statement = delete(dbModel).where(dbModel.id==id)
             async with asyncSessionMaker() as session:
                 result = await session.execute(statement)
+                await session.commit()
                 self.clear(id)
                 return result
 
