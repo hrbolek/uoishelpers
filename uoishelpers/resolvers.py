@@ -19,6 +19,9 @@ from sqlalchemy.ext.declarative import DeclarativeMeta as BaseModel
 
 from contextlib import asynccontextmanager
 
+import typing
+import logging
+import sys
 
 @asynccontextmanager
 async def withInfo(info):
@@ -32,142 +35,168 @@ async def withInfo(info):
             pass
 
 
-# def entities_resolver(self, root, info, representations):
-#     """Allows to call appropriate GQL model for reverence resolving.
-#     Implements ability to use single query to database with multiple results."""
-#     results = []
-#     typeDict = {}
-#     for index, representation in enumerate(representations):
-#         type_name = representation.pop("__typename")
-#         type_ = self.schema_converter.type_map[type_name]
-#         typeRow = typeDict.get(type_name, None)
-#         if typeRow is None:
-#             typeRow = {"type": type_, "questions": [], "indexes": [], "results": []}
-#             typeDict[type_name] = typeRow
-#             definition = cast(TypeDefinition, type_.definition)
-#             keyNames = list(representation.keys())
-#             # keyValues = list(representation.values())
-#             if hasattr(definition.origin, "resolve_references") and (
-#                 len(keyNames) == 1
-#             ):
-#                 keyName = keyNames[0]
-#                 typeRow["lazy"] = True
-#                 # typeRow['solved'] = False
+inputTypeGQLMapper = {}
 
-#                 resolve_references = definition.origin.resolve_references
+def createInputs(cls):
+    clsname = cls.__name__
+    print(f"GQL definitions for {clsname}")
+    whereName = clsname + "_where"
+    orName = clsname + "_or"
+    andName = clsname + "_and"
 
-#                 func_args = get_func_args(resolve_references)
+    fieldNames = [field_name for field_name in cls.__annotations__]
+    opNames = [clsname + "_" + field_name for field_name in fieldNames]
+    types = [field for field in cls.__annotations__.values()]
 
-#                 def getResult():
-#                     keyValues = typeRow["questions"]
-#                     kwargs = {}
-#                     kwargs[keyName] = list(map(lambda item: item[keyName], keyValues))
-#                     # TODO: use the same logic we use for other resolvers
-#                     if "info" in func_args:
-#                         kwargs["info"] = info
-#                     return resolve_references(**kwargs)
+    def createCustomInput(field, name, baseType = str):
+        result = inputTypeGQLMapper.get(baseType, None)
+        if result is None:
+            logging.info(f"New GQL type for {baseType}")
+            print(f"New GQL type for {baseType}")
+            result = type(name, (object,), {})
+            result.__annotations__ = {
+                op: typing.Optional[baseType] for op in ["_eq", "_le", "_lt", "_ge", "_gt"]
+            }
+            for op in ["_eq", "_le", "_lt", "_ge", "_gt"]:
+                setattr(result, op, strawberry.field(name=op, description="operation for select.filter() method", default=None))           
+            result = strawberry.input(result, description=f"Expression on attribute '{field}'. Only one constrain allowed.")
+        else:
+            logging.info(f"Using GQL type for {type(baseType)} ({result})")
+            print(f"Using GQL type for {type(baseType)} ({result})")
+        return   result
 
-#                 if keyName not in func_args:
-#                     result = GraphQLError(
-#                         f"Got confused while trying use resolve_references for {definition.origin}. Resolver resolve_references has not a prameter {keyNames[0]}"
-#                     )
-#                     get_result = lambda: [result] * len(typeRow["questions"])
-#                 # get_result = partial(resolve_references, **kwargs)
-#                 else:
-#                     get_result = getResult
-#                 typeRow["get_result"] = get_result
-#             elif hasattr(definition.origin, "resolve_reference"):
-#                 typeRow["lazy"] = False
+    inputTypes = [
+        createCustomInput(field, name, baseType)
+        for field, name, baseType in zip(fieldNames, opNames, types)
+    ]
+    
+    inputTypesDict = {
+        fieldName: typing.Optional[inputType]
+        for fieldName, inputType in zip(fieldNames, inputTypes)
+    }
 
-#                 resolve_reference = definition.origin.resolve_reference
+    #print("inputTypesDict")
+    #print(inputTypesDict)
 
-#                 func_args = get_func_args(resolve_reference)
+    def createOr():
+        result = type(orName, (object,), {})
+        anotations = {
+            "_and": typing.Optional[typing.List[andName]],
+            **inputTypesDict
+        }
+        result.__annotations__ = anotations
+        for op in anotations.keys():
+            setattr(result, op, 
+                strawberry.field(name=op, description="Filter method", default=None)
+            )
+        return result  
+        
+    orOp = strawberry.input(createOr(), description=f"Or operator definition on {clsname}")
+    #print("orOp")
+    #print(orOp)
 
-#                 # TODO: use the same logic we use for other resolvers
-#                 if "info" in func_args:
+    def createAnd():
+        result = type(andName, (object,), {})
+        anotations = {
+            "_or": typing.Optional[typing.List[orName]],
+            **inputTypesDict
+        }
+        result.__annotations__ = anotations
+        for op in anotations.keys():
+            setattr(result, op, 
+                strawberry.field(name=op, description="Filter method", default=None)
+            )
+        return result
 
-#                     def getResult(representation):
-#                         return resolve_references(info=info, **representation)
+    andOp = strawberry.input(createAnd(), description=f"And operator definition on {clsname}")
+    #print("andOp")
+    #print(andOp)
 
-#                 else:
-#                     getResult = representation
+    def createWhereOp():
+        result = type(whereName, (object,), {})
+        anotations = {
+            "_or": typing.Optional[typing.List[orOp]],
+            "_and": typing.Optional[typing.List[andOp]],
+            **inputTypesDict
+        }
+        result.__annotations__ = anotations
+        for op in anotations.keys():
+            setattr(result, op, 
+                strawberry.field(name=op, description="Filter method", default=None)
+            )
+            
+        return result  
 
-#                 typeRow["get_result"] = getResult
-#             else:
-#                 from strawberry.arguments import convert_argument
+    whereOp = strawberry.input(createWhereOp(), description=f"Operators definition on {clsname}")
+    #print("topOp")
+    #print(topOp)
+       
+    ####################################
+    # make all ops global in this module
+    ####################################
+    result = [whereOp, andOp, orOp, *inputTypes]
+    this = sys.modules[__name__]
+    for r in result:
+        setattr(this, r.__name__, r)
 
-#                 typeRow["lazy"] = False
-#                 strawberry_schema = info.schema.extensions["strawberry-definition"]
-#                 config = strawberry_schema.config
-#                 scalar_registry = strawberry_schema.schema_converter.scalar_registry
+    #return [topOp, andOp, orOp, *inputTypes]
+    return whereOp
+    #return inputTypes
 
-#                 # get_result = partial(
-#                 #     convert_argument,
-#                 #     representation,
-#                 #     type_=definition.origin,
-#                 #     scalar_registry=scalar_registry,
-#                 #     config=config,
-#                 # )
+@strawberry.input(description="Str filter methods, only one constrain allowed")
+class StrFilter:
+    _eq: typing.Optional[str] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
+    _le: typing.Optional[str] = strawberry.field(name="_le", description="operation for select.filter() method", default=None)
+    _lt: typing.Optional[str] = strawberry.field(name="_lt", description="operation for select.filter() method", default=None)
+    _ge: typing.Optional[str] = strawberry.field(name="_ge", description="operation for select.filter() method", default=None)
+    _gt: typing.Optional[str] = strawberry.field(name="_gt", description="operation for select.filter() method", default=None)
+    _like: typing.Optional[str] = strawberry.field(name="_like", description="operation for select.filter() method", default=None)
+    _ilike: typing.Optional[str] = strawberry.field(name="_ilike", description="operation for select.filter() method", default=None)
+    _startswith: typing.Optional[str] = strawberry.field(name="_startswith", description="operation for select.filter() method", default=None)
+    _endswith: typing.Optional[str] = strawberry.field(name="_endswith", description="operation for select.filter() method", default=None)
 
-#                 def create_get_result(
-#                     convert_argument,
-#                     type_=definition.origin,
-#                     scalar_registry=scalar_registry,
-#                     config=config,
-#                 ):
+@strawberry.input(description="Datetime filter methods, only one constrain allowed")
+class DatetimeFilter:
+    _eq: typing.Optional[datetime.datetime] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
+    _le: typing.Optional[datetime.datetime] = strawberry.field(name="_le", description="operation for select.filter() method", default=None)
+    _lt: typing.Optional[datetime.datetime] = strawberry.field(name="_lt", description="operation for select.filter() method", default=None)
+    _ge: typing.Optional[datetime.datetime] = strawberry.field(name="_ge", description="operation for select.filter() method", default=None)
+    _gt: typing.Optional[datetime.datetime] = strawberry.field(name="_gt", description="operation for select.filter() method", default=None)
 
-#                     return lambda representation: convert_argument(
-#                         representation,
-#                         type_=definition.origin,
-#                         scalar_registry=scalar_registry,
-#                         config=config,
-#                     )
+@strawberry.input(description="Integer filter methods, only one constrain allowed")
+class IntFilter:
+    _eq: typing.Optional[int] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
+    _le: typing.Optional[int] = strawberry.field(name="_le", description="operation for select.filter() method", default=None)
+    _lt: typing.Optional[int] = strawberry.field(name="_lt", description="operation for select.filter() method", default=None)
+    _ge: typing.Optional[int] = strawberry.field(name="_ge", description="operation for select.filter() method", default=None)
+    _gt: typing.Optional[int] = strawberry.field(name="_gt", description="operation for select.filter() method", default=None)
+    _in: typing.Optional[typing.List[int]] = strawberry.field(name="_in", description="operation for select.filter() method", default=None)
 
-#                 typeRow["get_result"] = create_get_result(
-#                     convert_argument,
-#                     type_=definition.origin,
-#                     scalar_registry=scalar_registry,
-#                     config=config,
-#                 )
-#         typeRow["indexes"].append(index)
-#         typeRow["questions"].append(representation)
+@strawberry.input(description="Float filter methods, only one constrain allowed")
+class FloatFilter:
+    _eq: typing.Optional[float] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
+    _le: typing.Optional[float] = strawberry.field(name="_le", description="operation for select.filter() method", default=None)
+    _lt: typing.Optional[float] = strawberry.field(name="_lt", description="operation for select.filter() method", default=None)
+    _ge: typing.Optional[float] = strawberry.field(name="_ge", description="operation for select.filter() method", default=None)
+    _gt: typing.Optional[float] = strawberry.field(name="_gt", description="operation for select.filter() method", default=None)
 
-#     async def awaitableWrapper(index, row):
-#         semaphore = row["semaphore"]
-#         listOfIndexes = row["indexes"]
-#         indexOf = listOfIndexes.index(index)
-#         async with semaphore:
-#             listOfResults = row["results"]
-#             if inspect.isawaitable(listOfResults):
-#                 listOfResults = await listOfResults
-#                 row["results"] = listOfResults
-#             singleResult = listOfResults[indexOf]
-#         return singleResult
+@strawberry.input(description="Boolean filter methods, only one constrain allowed")
+class BoolFilter:
+    _eq: typing.Optional[bool] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
 
-#     indexedResults = []
-#     for entityName, row in typeDict.items():
-#         if row["lazy"]:
-#             row["semaphore"] = asyncio.BoundedSemaphore(1)
+import uuid
+uuid.UUID
+@strawberry.input(description="Integer filter methods, only one constrain allowed")
+class UuidFilter:
+    _eq: typing.Optional[uuid.UUID] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
+    _in: typing.Optional[typing.List[uuid.UUID]] = strawberry.field(name="_in", description="operation for select.filter() method", default=None)
 
-#             get_result = row["get_result"]
-#             result = get_result()
-#             row["results"] = result
-#             indexedResults.extend(
-#                 [(index, awaitableWrapper(index, row)) for index in row["indexes"]]
-#             )
-#         else:
-#             get_result = row["get_result"]
-#             row["results"] = [get_result(item) for item in row["questions"]]
-#             indexedResults.extend(
-#                 [
-#                     (index, result)
-#                     for index, result in zip(row["indexes"], row["results"])
-#                 ]
-#             )
-
-#     indexedResults.sort(key=lambda a: a[0])
-#     results = list(map(lambda item: item[1], indexedResults))
-#     return results
+inputTypeGQLMapper[uuid.UUID] = UuidFilter
+inputTypeGQLMapper[int] = IntFilter
+inputTypeGQLMapper[str] = StrFilter
+inputTypeGQLMapper[datetime.datetime] = DatetimeFilter
+inputTypeGQLMapper[bool] = BoolFilter
+inputTypeGQLMapper[float] = FloatFilter
 
 
 def update(destination, source=None, extraValues={}):

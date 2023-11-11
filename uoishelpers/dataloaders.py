@@ -1,7 +1,86 @@
 import datetime
+import logging
 
 from aiodataloader import DataLoader
 from uoishelpers.resolvers import select, update, delete
+
+
+def prepareSelect(model, where: dict):   
+    from sqlalchemy import select, and_, or_
+    baseStatement = select(model)
+
+    def limitDict(input):
+        result = {key: value for key, value in input.items() if value is not None}
+        return result
+    
+    def convertAnd(name, listExpr):
+        assert len(listExpr) > 0, "atleast one attribute in And expected"
+        results = [convertAny(w) for w in listExpr]
+        return and_(*results)
+
+    def convertOr(name, listExpr):
+        #print("enter convertOr", listExpr)
+        assert len(listExpr) > 0, "atleast one attribute in Or expected"
+        results = [convertAny(w) for w in listExpr]
+        return or_(*results)
+
+    def convertAttributeOp(name, op, value):
+        column = getattr(model, name)
+        assert column is not None, f"cannot map {name} to model {model.__tablename__}"
+        opMethod = getattr(column, op)
+        assert opMethod is not None, f"cannot map {op} to attribute {name} of model {model.__tablename__}"
+        return opMethod(value)
+
+    def convertAttribute(attributeName, where):
+        woNone = limitDict(where)
+        #print("convertAttribute", attributeName, woNone)
+        keys = list(woNone.keys())
+        assert len(keys) == 1, "convertAttribute: only one attribute in where expected"
+        opName = keys[0]
+        opValue = woNone[opName]
+
+        ops = {
+            "_eq": "__eq__",
+            "_lt": "__lt__",
+            "_le": "__le__",
+            "_gt": "__gt__",
+            "_ge": "__ge__",
+            "_in": "in_",
+            "_like": "like",
+            "_ilike": "ilike",
+            "_startswith": "startswith",
+            "_endswith": "endswith",
+        }
+        opName = ops[opName]
+        #print("op", attributeName, opName, opValue)
+        result = convertAttributeOp(attributeName, opName, opValue)
+        return result
+        
+    def convertAny(where):
+        
+        woNone = limitDict(where)
+        #print("convertAny", woNone, flush=True)
+        keys = list(woNone.keys())
+        #print(keys, flush=True)
+        #print(woNone, flush=True)
+        assert len(keys) == 1, "convertAny: only one attribute in where expected"
+        key = keys[0]
+        value = woNone[key]
+        
+        convertors = {
+            "_and": convertAnd,
+            "_or": convertOr
+        }
+        #print("calling", key, "convertor", value, flush=True)
+        #print("value is", value, flush=True)
+        convertor = convertors.get(key, convertAttribute)
+
+        result = convertor(key, value)
+        return result
+    
+    filterStatement = convertAny(where)
+    result = baseStatement.filter(filterStatement)
+    return result
 
 def createIdLoader(asyncSessionMaker, dbModel):
 
@@ -98,6 +177,8 @@ def createIdLoader(asyncSessionMaker, dbModel):
             return asyncSessionMaker
         
         async def execute_select(self, statement):
+            print(statement)
+
             async with asyncSessionMaker() as session:
                 rows = await session.execute(statement)
                 return (
@@ -107,21 +188,17 @@ def createIdLoader(asyncSessionMaker, dbModel):
             
         async def filter_by(self, **filters):
             statement = mainstmt.filter_by(**filters)
-            async with asyncSessionMaker() as session:
-                rows = await session.execute(statement)
-                return (
-                    self.registerResult(row)
-                    for row in rows.scalars()
-                )
+            logging.debug(f"loader is executing statement {statement}")
+            return await self.execute_select(statement)
 
-        async def page(self, skip=0, limit=10):
-            statement = mainstmt.offset(skip).limit(limit)
-            async with asyncSessionMaker() as session:
-                rows = await session.execute(statement)
-                return (
-                    self.registerResult(row)
-                    for row in rows.scalars()
-                )
+        async def page(self, skip=0, limit=10, where=None, extendedfilter=None):
+            statement = mainstmt
+            if where is not None:
+                statement = prepareSelect(dbModel, where)
+            statement = statement.offset(skip).limit(limit)
+            if extendedfilter is not None:
+                statement = statement.filter_by(**extendedfilter)
+            return await self.execute_select(statement)
             
         def set_cache(self, cache_object):
             self.cache = True
