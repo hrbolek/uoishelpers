@@ -191,13 +191,21 @@ def createIdLoader(asyncSessionMaker, dbModel):
             logging.debug(f"loader is executing statement {statement}")
             return await self.execute_select(statement)
 
-        async def page(self, skip=0, limit=10, where=None, extendedfilter=None):
+        async def page(self, skip=0, limit=10, where=None, orderby=None, desc=None, extendedfilter=None):
             statement = mainstmt
             if where is not None:
                 statement = prepareSelect(dbModel, where)
             statement = statement.offset(skip).limit(limit)
             if extendedfilter is not None:
                 statement = statement.filter_by(**extendedfilter)
+            if orderby is not None:
+                column = getattr(dbModel, orderby, None)
+                if column is not None:
+                    if desc:
+                        statement.order_by(column.desc())
+                    else:
+                        statement.order_by(column.asc())
+
             return await self.execute_select(statement)
             
         def set_cache(self, cache_object):
