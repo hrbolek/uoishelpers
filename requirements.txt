@@ -1,3 +1,6 @@
 sqlalchemy
 strawberry-graphql
 aiodataloader
+starlette
+aiohttp
+jwt
