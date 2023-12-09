@@ -202,9 +202,9 @@ def createIdLoader(asyncSessionMaker, dbModel):
                 column = getattr(dbModel, orderby, None)
                 if column is not None:
                     if desc:
-                        statement.order_by(column.desc())
+                        statement = statement.order_by(column.desc())
                     else:
-                        statement.order_by(column.asc())
+                        statement = statement.order_by(column.asc())
 
             return await self.execute_select(statement)
             
