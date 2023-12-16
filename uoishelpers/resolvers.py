@@ -40,7 +40,8 @@ inputTypeGQLMapper = {}
 def createInputs(cls):
     clsname = cls.__name__
     print(f"GQL definitions for {clsname}")
-    whereName = clsname + "_where"
+    #whereName = clsname + "_where"
+    whereName = clsname
     orName = clsname + "_or"
     andName = clsname + "_and"
 
@@ -51,6 +52,11 @@ def createInputs(cls):
     def createCustomInput(field, name, baseType = str):
         result = inputTypeGQLMapper.get(baseType, None)
         if result is None:
+            print(30*"#")
+            print(f"New GQL type for {baseType.__name__}")
+            if (baseType.__name__ == typing.Annotated.__name__):
+                print(30*"#", "Annotated")
+                return baseType
             logging.info(f"New GQL type for {baseType}")
             print(f"New GQL type for {baseType}")
             result = type(name, (object,), {})
@@ -61,8 +67,8 @@ def createInputs(cls):
                 setattr(result, op, strawberry.field(name=op, description="operation for select.filter() method", default=None))           
             result = strawberry.input(result, description=f"Expression on attribute '{field}'. Only one constrain allowed.")
         else:
-            logging.info(f"Using GQL type for {type(baseType)} ({result})")
-            print(f"Using GQL type for {type(baseType)} ({result})")
+            logging.info(f"Using GQL type for {(baseType)} ({result})")
+            print(f"Using GQL type for {(baseType)} ({result})")
         return   result
 
     inputTypes = [
@@ -140,6 +146,9 @@ def createInputs(cls):
         setattr(this, r.__name__, r)
 
     #return [topOp, andOp, orOp, *inputTypes]
+
+    #register new type
+    inputTypeGQLMapper[whereOp] = whereOp
     return whereOp
     #return inputTypes
 
@@ -172,15 +181,7 @@ class IntFilter:
     _gt: typing.Optional[int] = strawberry.field(name="_gt", description="operation for select.filter() method", default=None)
     _in: typing.Optional[typing.List[int]] = strawberry.field(name="_in", description="operation for select.filter() method", default=None)
 
-@strawberry.input(description="Float filter methods, only one constrain allowed")
-class FloatFilter:
-    _eq: typing.Optional[float] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
-    _le: typing.Optional[float] = strawberry.field(name="_le", description="operation for select.filter() method", default=None)
-    _lt: typing.Optional[float] = strawberry.field(name="_lt", description="operation for select.filter() method", default=None)
-    _ge: typing.Optional[float] = strawberry.field(name="_ge", description="operation for select.filter() method", default=None)
-    _gt: typing.Optional[float] = strawberry.field(name="_gt", description="operation for select.filter() method", default=None)
-
-@strawberry.input(description="Boolean filter methods, only one constrain allowed")
+@strawberry.input(description="Integer filter methods, only one constrain allowed")
 class BoolFilter:
     _eq: typing.Optional[bool] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
 
@@ -196,7 +197,6 @@ inputTypeGQLMapper[int] = IntFilter
 inputTypeGQLMapper[str] = StrFilter
 inputTypeGQLMapper[datetime.datetime] = DatetimeFilter
 inputTypeGQLMapper[bool] = BoolFilter
-inputTypeGQLMapper[float] = FloatFilter
 
 
 def update(destination, source=None, extraValues={}):
