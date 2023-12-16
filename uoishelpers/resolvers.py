@@ -39,7 +39,7 @@ inputTypeGQLMapper = {}
 
 def createInputs(cls):
     clsname = cls.__name__
-    print(f"GQL definitions for {clsname}")
+    # print(f"GQL definitions for {clsname}")
     #whereName = clsname + "_where"
     whereName = clsname
     orName = clsname + "_or"
@@ -52,13 +52,13 @@ def createInputs(cls):
     def createCustomInput(field, name, baseType = str):
         result = inputTypeGQLMapper.get(baseType, None)
         if result is None:
-            print(30*"#")
-            print(f"New GQL type for {baseType.__name__}")
+            # print(30*"#")
+            # print(f"New GQL type for {baseType.__name__}")
             if (baseType.__name__ == typing.Annotated.__name__):
-                print(30*"#", "Annotated")
+                # print(30*"#", "Annotated")
                 return baseType
             logging.info(f"New GQL type for {baseType}")
-            print(f"New GQL type for {baseType}")
+            # print(f"New GQL type for {baseType}")
             result = type(name, (object,), {})
             result.__annotations__ = {
                 op: typing.Optional[baseType] for op in ["_eq", "_le", "_lt", "_ge", "_gt"]
@@ -68,7 +68,7 @@ def createInputs(cls):
             result = strawberry.input(result, description=f"Expression on attribute '{field}'. Only one constrain allowed.")
         else:
             logging.info(f"Using GQL type for {(baseType)} ({result})")
-            print(f"Using GQL type for {(baseType)} ({result})")
+            # print(f"Using GQL type for {(baseType)} ({result})")
         return   result
 
     inputTypes = [
