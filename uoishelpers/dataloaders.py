@@ -219,7 +219,7 @@ def createIdLoader(asyncSessionMaker, dbModel):
             return asyncSessionMaker
         
         async def execute_select(self, statement):
-            print(statement)
+            #print(statement)
 
             async with asyncSessionMaker() as session:
                 rows = await session.execute(statement)
