@@ -91,7 +91,7 @@ class BasicAuthBackend(AuthenticationBackend):
         # 3A. pokud jwt obsahuje user.id, vzit jej primo
         user_id = jwtdecoded.get("user_id", None)
         print("some user?", user_id)
-
+        userinfo = {"id": user_id}
         # 4. pouzit jwt jako parametr pro identifikaci uzivatele u autority
         if user_id is None:
             async with aiohttp.ClientSession() as session:
@@ -101,15 +101,15 @@ class BasicAuthBackend(AuthenticationBackend):
                     assert resp.status == 200
                     userinfo = await resp.json()
                     print("got userinfo", userinfo)
-                    print("got userinfo", userinfo["user"])
+                    user_id = userinfo["id"]
 
-        demouser = os.getenv("DEMOUSER", '{"id": "2d9dc5ca-a4a2-11ed-b9df-0242ac120003", "name": "John", "surname": "Newbie"}')
-        user = json.loads(demouser)
+        logging.debug(f"We know that user is {user_id}")
+
         if user_id is None:
-            user["id"] = user_id
+            raise AuthenticationError(f"Unknown user")
             
         print("# SUCCESS #######################################")
-        return AuthCredentials(["authenticated"]), user
+        return AuthCredentials(["authenticated"]), userinfo
     
 from starlette.requests import HTTPConnection
 from starlette.responses import PlainTextResponse, Response, RedirectResponse
