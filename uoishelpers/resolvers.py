@@ -121,8 +121,12 @@ def createInputs(cls):
     def createWhereOp():
         result = type(whereName, (object,), {})
         anotations = {
-            "_or": typing.Optional[typing.List[orOp]],
-            "_and": typing.Optional[typing.List[andOp]],
+            # "_or": typing.Optional[typing.List[orOp]],
+            # "_and": typing.Optional[typing.List[andOp]],
+            # "_or": typing.Optional[typing.List[f'"{orName}"']],
+            # "_and": typing.Optional[typing.List[f'"{andName}"']],
+            "_or": typing.Optional[typing.List[orName]],
+            "_and": typing.Optional[typing.List[andName]],
             **inputTypesDict
         }
         result.__annotations__ = anotations
