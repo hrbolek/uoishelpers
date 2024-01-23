@@ -303,7 +303,7 @@ def createLoadersAuto(asyncSessionMaker, BaseModel, extra={}):
 
     for DBModel in BaseModel.registry.mappers:
         cls = DBModel.class_
-        attrs[cls.__tableName__] = property(cache(createLambda(asyncSessionMaker, cls)))
+        attrs[cls.__tablename__] = property(cache(createLambda(asyncSessionMaker, cls)))
 
     for key, value in extra.items():
         attrs[key] = property(cache(lambda self: value()))
