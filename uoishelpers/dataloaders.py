@@ -296,25 +296,16 @@ async def createLoaders(asyncSessionMaker, models):
     return Loaders()   
 
 def createLoadersAuto(asyncSessionMaker, BaseModel, extra={}):
-    @cache
-    def createModelDict():
-        result = {}
-        for DBModel in BaseModel.registry.mappers:
-            table = DBModel.class_
-            result[table.__tablename__] = table
-        return result
-
     def createLambda(loaderName, DBModel):
         return lambda self: createIdLoader(asyncSessionMaker, DBModel)
 
-    modelDict = createModelDict()    
     attrs = {}
 
-    for tableName, DBModel in modelDict.items():
-        attrs[tableName] = property(cache(createLambda(asyncSessionMaker, DBModel)))
-        # print(tableName, DBModel)
+    for DBModel in BaseModel.registry.mappers:
+        cls = DBModel.class_
+        attrs[cls.__tableName__] = property(cache(createLambda(asyncSessionMaker, cls)))
 
-    for key, value in extra.items();    
+    for key, value in extra.items():
         attrs[key] = property(cache(lambda self: value()))
     Loaders = type('Loaders', (), attrs)   
     return Loaders()
