@@ -240,6 +240,8 @@ def createAuthentizationSentinel(
                     if (i == 1):
                         # klic byl aktualizovan a presto doslo k vyjimce
                         raise AuthenticationError("Invalid signature")
+                except Exception as e:
+                    print(f"unexpected exception {e}")
                 
                 # aktualizace klice, predchozi selhal
                 publickey = await self.getPublicKey()
