@@ -132,9 +132,7 @@ import json
 import jwt
 from fastapi import Request
 from starlette.responses import JSONResponse
-
-class AuthenticationError(Exception):
-    pass
+from starlette.authentication import AuthenticationError
 
 class Item(BaseModel):
     query: str
