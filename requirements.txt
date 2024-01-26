@@ -3,4 +3,4 @@ strawberry-graphql
 aiodataloader
 starlette
 aiohttp
-jwt
+pyjwt[crypto]

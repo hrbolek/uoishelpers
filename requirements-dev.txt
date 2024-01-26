@@ -6,3 +6,5 @@ httpx
 aiosqlite
 pytest-cov
 pytest-asyncio
+
+pyjwt[crypto]
