@@ -1,11 +1,12 @@
 import uuid
 import sqlalchemy
 import strawberry  # strawberry-graphql==0.119.0
-
-from strawberry.types.types import TypeDefinition
+from sqlalchemy import inspect
+from sqlalchemy.orm import ColumnProperty
+from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.orm.relationships import Relationship
 from strawberry.utils.inspect import get_func_args
-from graphql import GraphQLObjectType, GraphQLError
-from functools import partial
+from functools import cache
 from typing import cast
 
 import datetime
@@ -812,3 +813,170 @@ def createInsertResolver(
         return result
 
     return resolveInsert
+
+
+def createDBResolvers(BaseModel):
+    """
+    create a structure of resolvers derived from SQLAlchemy BaseModel
+
+    result.UserModel.name
+    result.UserModel.groups(GroupGQLModel)
+    """
+
+    def createLambda(DBModel):
+        return lambda self: DeriveGQLResolvers(DBModel)
+
+    attrs = {}
+
+    for DBModel in BaseModel.registry.mappers:
+        cls = DBModel.class_
+        attrs[DBModel.class_.__name__] = property(cache(createLambda(cls)))
+    
+    # attrs["authorizations"] = property(cache(lambda self: AuthorizationLoader()))
+    DBResolvers = type('DBResolvers', (), attrs)   
+    return DBResolvers()
+
+
+def createGQLTypeResolver():
+    resolvedType = None
+    def resolver(info: strawberry.types.Info):
+        nonlocal resolvedType
+        if resolvedType:
+            return resolvedType
+        _GQLModel = info.return_type
+
+        if (_GQLModel.__class__.__name__ == "StrawberryOptional"):
+            _GQLModel = _GQLModel.of_type
+
+        if (_GQLModel.__class__.__name__ == "StrawberryList"):
+            _GQLModel = _GQLModel.of_type
+
+        if (isinstance(_GQLModel, strawberry.LazyType)):
+            _GQLModel = _GQLModel.resolve_type()
+
+        resolvedType = _GQLModel
+        return _GQLModel
+    return resolver
+
+def DeriveGQLResolvers(DBModel):
+    
+    # attrs = inspect(DBModel).attrs
+    # attrs = inspect(DBModel).all_orm_descriptors
+    attrs = {
+        **dict(inspect(DBModel).all_orm_descriptors),
+        **dict(inspect(DBModel).attrs)
+    }
+    # attrs = dict(inspect(DBModel).all_orm_descriptors) + dict(inspect(DBModel).attrs)
+    
+    # print("dir(inspect(DBModel))", dir(inspect(DBModel)))
+    # print("attrs", dict(attrs))
+    # print("attrs", dict(attrs))
+    # print("dict(inspect(DBModel).all_orm_descriptors)", dict(inspect(DBModel).all_orm_descriptors))
+    
+    def AsItemResolver(name, GQLModel=None, WhereFilterModel = None):
+        assert hasattr(DBModel, name), f"{DBModel} has not attribute {name}, resolver cannot be created"
+        resolveReturnType = createGQLTypeResolver()
+        attr = attrs[name]
+        # print("name, attr", name, attr, type(attr))
+        if isinstance(attr, ColumnProperty):
+            
+            expr = attr.expression
+            python_type = expr.type.python_type
+            name = expr.name
+            def resolveattribute(self) -> Optional[python_type]:
+                return getattr(self, name)
+            return resolveattribute
+        elif isinstance(attr, hybrid_property):
+            assert False, "using hybrid_property {name} is not supported (see {DBModel})"
+        else:
+            # print("name, attr", name, attr)
+            assert GQLModel is not None, f"missing target GQLModel for resolution attribute {name} of {DBModel}"
+            fkeys = list(attr._calculated_foreign_keys)
+            assert len(fkeys) == 1, f"too complicated relation {DBModel} -> {attr.entity.class_}"
+            fkeyname = f"{attr.entity.class_.__tablename__}.{fkeys[0].name}"
+            fkeyname = fkeys[0].name
+
+            async def resolvescalar(self, info: strawberry.types.Info) -> Optional[GQLModel]:
+                _GQLModel = resolveReturnType(info)
+                fkeyvalue = getattr(self, fkeyname)
+                return await _GQLModel.resolve_reference(info, id=fkeyvalue)
+
+            if WhereFilterModel is None:
+                async def resolvevector(self, info: strawberry.types.Info) -> List[GQLModel]:
+                    _GQLModel = resolveReturnType(info)
+                    loader = _GQLModel.getLoader(info)
+                    params = {fkeyname: self.id}
+                    rows = await loader.filter_by(**params)
+                    # async def page(self, skip=0, limit=10, where=None, orderby=None, desc=None, extendedfilter=None):
+                    return rows
+            else:
+                async def resolvevector(self, info: strawberry.types.Info,
+                    skip: Optional[int] = 0, limit: Optional[int] = 10,
+                    where: Optional[WhereFilterModel] = None,
+                    orderby: Optional[str] = None,
+                    desc: Optional[bool] = None
+                ) -> List[GQLModel]:
+                    _GQLModel = resolveReturnType(info)
+                    loader = _GQLModel.getLoader(info)
+                    params = {fkeyname: self.id}
+                    wheredict = None if where is None else strawberry.asdict(where)
+                    # async def page(self, skip=0, limit=10, where=None, orderby=None, desc=None, extendedfilter=None):
+                    # print(f"call of page for {DBModel} with {params}, expecting List[{_GQLModel}]")
+                    # print(f"where is {wheredict}")
+                    rows = await loader.page(
+                        skip=skip, limit=limit, where=wheredict, 
+                        orderby=orderby, desc=desc, extendedfilter=params
+                    )
+                    return rows
+                pass
+            return resolvevector if attr.uselist else resolvescalar
+    # return AsItemResolver
+    
+    # 👇 root resolver for queries by value of primary key (id)
+    def ByIdResolver(self, GQLModel):
+        resolveReturnType = createGQLTypeResolver()    
+        async def id_resolver(self, info: strawberry.types.Info, id: uuid.UUID) -> Optional[GQLModel]:
+            _GQLModel = resolveReturnType(info)
+            return await _GQLModel.resolve_reference(info, id=id)
+        return id_resolver
+    
+    # 👇 root resolver for queries returning a list of entities
+    # if WhereFilterModel is not defined, just resolver without filter capability is returned
+    def PageResolver(self, GQLModel, WhereFilterModel = None):
+        resolveReturnType = createGQLTypeResolver()
+        if WhereFilterModel is None:
+            async def page_resolver(self, info: strawberry.types.Info,
+                skip: Optional[int] = 0, limit: Optional[int] = 10
+            ) -> List[GQLModel]:
+                _GQLModel = resolveReturnType(info)
+                loader = _GQLModel.getLoader(info)
+                return await loader.page(skip=skip, limit=limit)
+        else:
+            async def page_resolver(self, info: strawberry.types.Info,
+                skip: Optional[int] = 0, limit: Optional[int] = 10,
+                where: Optional[WhereFilterModel] = None,
+                orderby: Optional[str] = None,
+                desc: Optional[bool] = None
+            ) -> List[GQLModel]:
+                _GQLModel = resolveReturnType(info)
+                wheredict = None if where is None else strawberry.asdict(where)
+                loader = _GQLModel.getLoader(info)
+                # async def page(self, skip=0, limit=10, where=None, orderby=None, desc=None, extendedfilter=None):
+                return await loader.page(where=wheredict, skip=skip, limit=limit, orderby=orderby, desc=desc)
+            
+        return page_resolver
+        
+    def createLambda(name):
+        return lambda self, GQLModel=None, WhereFilterModel=None: AsItemResolver(name, GQLModel, WhereFilterModel)
+    clsattrs = {name: createLambda(name) for name, attr in attrs.items()}
+    # print("clsattrs", clsattrs)
+    for name, attr in attrs.items():
+        if isinstance(attr, Relationship): print(name, attr)
+        if isinstance(attr, Relationship): continue
+        clsattrs[name] = property(cache(clsattrs[name]))
+        
+    clsattrs["resolve_by_id"] = ByIdResolver
+    clsattrs["resolve_page"] = PageResolver
+
+    DBResolvers = type(f'{DBModel.__class__.__name__}Resolvers', (), clsattrs)   
+    return DBResolvers()
