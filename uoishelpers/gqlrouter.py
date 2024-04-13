@@ -48,7 +48,7 @@ def MountGuardedGQL(app, mountpoint="/gql", schema=None, get_context=None, DEMO=
             schemaresult = await schema.execute(query=item.query, variable_values=item.variables, operation_name=item.operationName, context_value=context)
         except Exception as e:
             logging.info(f"error during schema execute {e}")
-            return {"data": None, "errors": [{"msg": "{e}"}]}
+            return {"data": None, "errors": [{"msg": f"{e}"}]}
         # logging.info(f"schema execute result \n{schemaresult}")
         result = {"data": schemaresult.data}
         if schemaresult.errors:
