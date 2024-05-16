@@ -234,7 +234,10 @@ def createIdLoader(asyncSessionMaker, dbModel):
             return await self.execute_select(statement)
 
         async def page(self, skip=0, limit=10, where=None, orderby=None, desc=None, extendedfilter=None):
-            statement = mainstmt
+            if where is not None:
+                statement = prepareSelect(dbModel, where)
+            else:
+                statement = mainstmt
             statement = statement.offset(skip).limit(limit)
             if extendedfilter is not None:
                 statement = statement.filter_by(**extendedfilter)
@@ -246,8 +249,6 @@ def createIdLoader(asyncSessionMaker, dbModel):
                     else:
                         statement = statement.order_by(column.asc())
 
-            if where is not None:
-                statement = prepareSelect(dbModel, where)
             return await self.execute_select(statement)
             
         def set_cache(self, cache_object):
