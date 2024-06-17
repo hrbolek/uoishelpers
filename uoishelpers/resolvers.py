@@ -66,7 +66,7 @@ def createInputs(cls):
             }
             for op in ["_eq", "_le", "_lt", "_ge", "_gt"]:
                 setattr(result, op, strawberry.field(name=op, description="operation for select.filter() method", default=None))           
-            result = strawberry.input(result, one_of=True, description=f"Expression on attribute '{field}'. Only one constrain allowed.")
+            result = strawberry.input(result, description=f"Expression on attribute '{field}'. Only one constrain allowed.")
         else:
             logging.info(f"Using GQL type for {(baseType)} ({result})")
             # print(f"Using GQL type for {(baseType)} ({result})")
@@ -98,7 +98,7 @@ def createInputs(cls):
             )
         return result  
         
-    orOp = strawberry.input(createOr(), one_of=True, description=f"Or operator definition on {clsname}")
+    orOp = strawberry.input(createOr(), description=f"Or operator definition on {clsname}")
     #print("orOp")
     #print(orOp)
 
@@ -115,7 +115,7 @@ def createInputs(cls):
             )
         return result
 
-    andOp = strawberry.input(createAnd(), one_of=True, description=f"And operator definition on {clsname}")
+    andOp = strawberry.input(createAnd(), description=f"And operator definition on {clsname}")
     #print("andOp")
     #print(andOp)
 
@@ -138,7 +138,7 @@ def createInputs(cls):
             
         return result  
 
-    whereOp = strawberry.input(createWhereOp(), one_of=True, description=f"Operators definition on {clsname}")
+    whereOp = strawberry.input(createWhereOp(), description=f"Operators definition on {clsname}")
     #print("topOp")
     #print(topOp)
        
@@ -157,7 +157,7 @@ def createInputs(cls):
     return whereOp
     #return inputTypes
 
-@strawberry.input(one_of=True, description="Str filter methods, only one constrain allowed")
+@strawberry.input(description="Str filter methods, only one constrain allowed")
 class StrFilter:
     _eq: typing.Optional[str] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
     _le: typing.Optional[str] = strawberry.field(name="_le", description="operation for select.filter() method", default=None)
@@ -169,7 +169,7 @@ class StrFilter:
     _startswith: typing.Optional[str] = strawberry.field(name="_startswith", description="operation for select.filter() method", default=None)
     _endswith: typing.Optional[str] = strawberry.field(name="_endswith", description="operation for select.filter() method", default=None)
 
-@strawberry.input(one_of=True, description="Datetime filter methods, only one constrain allowed")
+@strawberry.input(description="Datetime filter methods, only one constrain allowed")
 class DatetimeFilter:
     _eq: typing.Optional[datetime.datetime] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
     _le: typing.Optional[datetime.datetime] = strawberry.field(name="_le", description="operation for select.filter() method", default=None)
@@ -177,7 +177,7 @@ class DatetimeFilter:
     _ge: typing.Optional[datetime.datetime] = strawberry.field(name="_ge", description="operation for select.filter() method", default=None)
     _gt: typing.Optional[datetime.datetime] = strawberry.field(name="_gt", description="operation for select.filter() method", default=None)
 
-@strawberry.input(one_of=True, description="Timeduration filter methods, only one constrain allowed")
+@strawberry.input(description="Timeduration filter methods, only one constrain allowed")
 class TimeDurationFilter:
     _eq: typing.Optional[datetime.timedelta] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
     _le: typing.Optional[datetime.timedelta] = strawberry.field(name="_le", description="operation for select.filter() method", default=None)
@@ -185,7 +185,7 @@ class TimeDurationFilter:
     _ge: typing.Optional[datetime.timedelta] = strawberry.field(name="_ge", description="operation for select.filter() method", default=None)
     _gt: typing.Optional[datetime.timedelta] = strawberry.field(name="_gt", description="operation for select.filter() method", default=None)
 
-@strawberry.input(one_of=True, description="Integer filter methods, only one constrain allowed")
+@strawberry.input(description="Integer filter methods, only one constrain allowed")
 class IntFilter:
     _eq: typing.Optional[int] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
     _le: typing.Optional[int] = strawberry.field(name="_le", description="operation for select.filter() method", default=None)
@@ -194,13 +194,13 @@ class IntFilter:
     _gt: typing.Optional[int] = strawberry.field(name="_gt", description="operation for select.filter() method", default=None)
     _in: typing.Optional[typing.List[int]] = strawberry.field(name="_in", description="operation for select.filter() method", default=None)
 
-@strawberry.input(one_of=True, description="Integer filter methods, only one constrain allowed")
+@strawberry.input(description="Integer filter methods, only one constrain allowed")
 class BoolFilter:
     _eq: typing.Optional[bool] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
 
 import uuid
 uuid.UUID
-@strawberry.input(one_of=True, description="Integer filter methods, only one constrain allowed")
+@strawberry.input(description="Integer filter methods, only one constrain allowed")
 class UuidFilter:
     _eq: typing.Optional[uuid.UUID] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
     _in: typing.Optional[typing.List[uuid.UUID]] = strawberry.field(name="_in", description="operation for select.filter() method", default=None)
