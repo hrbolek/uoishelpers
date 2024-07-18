@@ -5,10 +5,13 @@ from aiodataloader import DataLoader
 from uoishelpers.resolvers import select, update, delete
 
 
-def prepareSelect(model, where: dict):   
+def prepareSelect(model, where: dict, extendedfilter=None):   
     usedTables = [model.__tablename__]
     from sqlalchemy import select, and_, or_
     baseStatement = select(model)
+    if extendedfilter is not None:
+        baseStatement = baseStatement.filter_by(**extendedfilter)
+
     # stmt = select(GroupTypeModel).join(GroupTypeModel.groups.property.target).filter(GroupTypeModel.groups.property.target.c.name == "22-5KB")
     # type(GroupTypeModel.groups.property) sqlalchemy.orm.relationships.RelationshipProperty
     # GroupTypeModel.groups.property.entity.class_
@@ -235,12 +238,14 @@ def createIdLoader(asyncSessionMaker, dbModel):
 
         async def page(self, skip=0, limit=10, where=None, orderby=None, desc=None, extendedfilter=None):
             if where is not None:
-                statement = prepareSelect(dbModel, where)
+                statement = prepareSelect(dbModel, where, extendedfilter)
+            elif extendedfilter is not None:
+                statement = mainstmt.filter_by(**extendedfilter)
             else:
                 statement = mainstmt
             statement = statement.offset(skip).limit(limit)
-            if extendedfilter is not None:
-                statement = statement.filter_by(**extendedfilter)
+            # if extendedfilter is not None:
+            #     statement = statement.filter_by(**extendedfilter)
             if orderby is not None:
                 column = getattr(dbModel, orderby, None)
                 if column is not None:
