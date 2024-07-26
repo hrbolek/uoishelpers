@@ -1003,12 +1003,12 @@ def getLoadersFromInfo(info: strawberry.types.Info):
 sentinel = "ea3afa47-3fc4-4d50-8b76-65e3d54cce01"
 async def encapsulateInsert(info, loader, entity, result):
     actinguser = getUserFromInfo(info)
+    id = uuid.UUID(actinguser["id"])
     rbacobject = getattr(entity, "rbacobject", sentinel)
     if rbacobject != sentinel:
         if rbacobject is None:
-            entity.rbacobject = actinguser
-            
-    id = uuid.UUID(actinguser["id"])
+            entity.rbacobject = id
+
     entity.createdby = id
 
     row = await loader.insert(entity)
