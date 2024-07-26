@@ -25,8 +25,6 @@ import logging
 import sys
 
 
-from .gqlpermissions import getUserFromInfo
-
 @asynccontextmanager
 async def withInfo(info):
     """Context manager for session created
