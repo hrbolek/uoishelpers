@@ -39,7 +39,7 @@ import os
 import functools
 import requests
 import aiohttp
-from resolvers import IDType, getLoadersFromInfo
+from .resolvers import IDType, getLoadersFromInfo
 
 @strawberry.federation.type(extend=True, keys=["id"])
 class RBACObjectGQLModel:
