@@ -1,16 +1,13 @@
 import os
+import functools
+import requests
+import aiohttp
+
 import strawberry
 from strawberry.types.base import StrawberryList
 from functools import cached_property
 
-def getUserFromInfo(info: strawberry.types.Info):
-    result = info.context.get("user", None)
-    if result is None:
-        request = info.context.get("request", None)
-        assert request is not None, "request should be in context, something is wrong"
-        result = request.scope.get("user", None)
-    assert result is not None, "User is wanted but not present in context or in request.scope, check it"
-    return result
+from .resolvers import IDType, getLoadersFromInfo, getUserFromInfo
 
 class OnlyForAuthentized(strawberry.permission.BasePermission):
     message = "User is not authenticated"
@@ -33,13 +30,6 @@ class OnlyForAuthentized(strawberry.permission.BasePermission):
     def isDEMO(self):
         DEMO = os.getenv("DEMO", None)
         return DEMO == "True"
-
-
-import os
-import functools
-import requests
-import aiohttp
-from .resolvers import IDType, getLoadersFromInfo
 
 @strawberry.federation.type(extend=True, keys=["id"])
 class RBACObjectGQLModel:
