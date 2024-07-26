@@ -1,5 +1,7 @@
 import datetime
 import logging
+import uuid
+import json
 
 from aiodataloader import DataLoader
 from uoishelpers.resolvers import select, update, delete
@@ -316,3 +318,35 @@ def createLoadersAuto(asyncSessionMaker, BaseModel, extra={}):
         attrs[key] = property(cache(lambda self: value()))
     Loaders = type('Loaders', (), attrs)   
     return Loaders()
+
+def readJsonFile(jsonFileName):
+    def datetime_parser(json_dict):
+        for (key, value) in json_dict.items():
+            if key in ["startdate", "enddate", "lastchange", "created"]:
+                if value is None:
+                    dateValueWOtzinfo = None
+                else:
+                    try:
+                        dateValue = datetime.datetime.fromisoformat(value)
+                        dateValueWOtzinfo = dateValue.replace(tzinfo=None)
+                    except:
+                        print("jsonconvert Error", key, value, flush=True)
+                        dateValueWOtzinfo = None
+                
+                json_dict[key] = dateValueWOtzinfo
+            
+            if (key in ["id", "changedby", "createdby", "rbacobject"]) or ("_id" in key):
+                
+                if key == "outer_id":
+                    json_dict[key] = value
+                elif value not in ["", None]:
+                    json_dict[key] = uuid.UUID(value)
+                else:
+                    print(key, value)
+
+        return json_dict
+
+    with open(jsonFileName, "r", encoding="utf-8") as f:
+        jsonData = json.load(f, object_hook=datetime_parser)
+
+    return jsonData
