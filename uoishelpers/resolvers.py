@@ -24,6 +24,9 @@ import typing
 import logging
 import sys
 
+
+from .gqlpermissions import getUserFromInfo
+
 @asynccontextmanager
 async def withInfo(info):
     """Context manager for session created
@@ -989,3 +992,60 @@ def DeriveGQLResolvers(DBModel):
 
     DBResolvers = type(f'{DBModel.__class__.__name__}Resolvers', (), clsattrs)   
     return DBResolvers()
+
+
+def getLoadersFromInfo(info: strawberry.types.Info):
+    result = info.context.get("loaders", None)
+    assert result is not None, "Loaders are asked for but not present in context, check context preparation"
+    return result
+
+
+sentinel = "ea3afa47-3fc4-4d50-8b76-65e3d54cce01"
+async def encapsulateInsert(info, loader, entity, result):
+    actinguser = getUserFromInfo(info)
+    rbacobject = getattr(entity, "rbacobject", sentinel)
+    if rbacobject != sentinel:
+        if rbacobject is None:
+            entity.rbacobject = actinguser
+            
+    id = uuid.UUID(actinguser["id"])
+    entity.createdby = id
+
+    row = await loader.insert(entity)
+    assert result.msg is not None, "result msg must be predefined (Operation Insert)"
+    result.id = row.id
+    return result
+
+async def encapsulateUpdate(info, loader, entity, result):
+    actinguser = getUserFromInfo(info)
+    id = uuid.UUID(actinguser["id"])
+    entity.changedby = id
+
+    row = await loader.update(entity)
+    result.id = entity.id if result.id is None else result.id 
+    result.msg = "ok" if row is not None else "fail"
+    return result
+
+import sqlalchemy.exc
+
+async def encapsulateDelete(info, loader, id, result):
+    # try:
+    #     await loader.delete(id)
+    # except sqlalchemy.exc.IntegrityError as e:
+    #     result.msg='fail'
+    # return result
+    await loader.delete(id)
+    return result
+
+IDType = uuid.UUID
+@classmethod
+async def resolve_reference(cls, info: strawberry.types.Info, id: IDType):
+    if id is None: return None
+    if isinstance(id, str): id = IDType(id)
+    loader = cls.getLoader(info)
+    result = await loader.load(id)
+    if result is not None:
+        # result._type_definition = cls._type_definition  # little hack :)
+        result.__strawberry_definition__ = cls.__strawberry_definition__  # little hack :)
+    return result
+

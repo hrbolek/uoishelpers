@@ -211,12 +211,14 @@ def createAuthentizationSentinel(
                 else:
                     #unathorized
                     pass
+
             logging.debug(f'Sentinel authentication phase message: token: \n {jwtsource}')
             # print('Sentinel got jwtsource', jwtsource, "\n", self.publickey)
             logging.debug(30*"#")
             if jwtsource is None:
                 logging.debug(f'Sentinel authentication phase message: TOKEN IS MISSING')
                 raise AuthenticationError("missing code")
+            request.scope["jwt"] = jwtsource
 
             # 2. ziskat verejny klic (async request to authority)
             logging.debug("2. ziskat verejny klic (async request to authority)")
