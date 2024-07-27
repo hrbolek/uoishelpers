@@ -1055,3 +1055,119 @@ async def resolve_reference(cls, info: strawberry.types.Info, id: IDType):
         result.__strawberry_definition__ = cls.__strawberry_definition__  # little hack :)
     return result
 
+
+import strawberry
+import uuid
+from typing import List, Optional
+from sqlalchemy import inspect
+from sqlalchemy.orm import ColumnProperty
+from functools import cache
+
+def createGQLTypeResolver():
+    resolvedType = None
+    def resolver(info: strawberry.types.Info):
+        nonlocal resolvedType
+        if resolvedType:
+            return resolvedType
+        _GQLModel = info.return_type
+
+        if (_GQLModel.__class__.__name__ == "StrawberryOptional"):
+            _GQLModel = _GQLModel.of_type
+
+        if (_GQLModel.__class__.__name__ == "StrawberryList"):
+            _GQLModel = _GQLModel.of_type
+
+        if (isinstance(_GQLModel, strawberry.LazyType)):
+            _GQLModel = _GQLModel.resolve_type()
+
+        resolvedType = _GQLModel
+        return _GQLModel
+    return resolver
+
+class DBResolver:
+    def __init__(self, DBModel):
+        self.DBModel = DBModel
+        self.attrs = {
+            **dict(inspect(DBModel).all_orm_descriptors),
+            **dict(inspect(DBModel).attrs)
+    }
+
+    def ById(self):
+        resolveReturnType = createGQLTypeResolver()    
+        async def id_resolver(self, info: strawberry.types.Info, id: uuid.UUID) -> Optional[GQLModel]:
+            _GQLModel = resolveReturnType(info)
+            return await _GQLModel.resolve_reference(info, id=id)
+        return id_resolver
+
+    def Page(self, GQLModel, WhereFilterModel, skip=0, limit=10):
+        resolveReturnType = createGQLTypeResolver()
+        async def page_resolver(self, info: strawberry.types.Info,
+            skip: Optional[int] = 0, limit: Optional[int] = 10,
+            where: Optional[WhereFilterModel] = None,
+            orderby: Optional[str] = None,
+            desc: Optional[bool] = None
+        ) -> List[GQLModel]:
+            _GQLModel = resolveReturnType(info)
+            wheredict = None if where is None else strawberry.asdict(where)
+            loader = _GQLModel.getLoader(info)
+            # async def page(self, skip=0, limit=10, where=None, orderby=None, desc=None, extendedfilter=None):
+            return await loader.page(where=wheredict, skip=skip, limit=limit, orderby=orderby, desc=desc)
+        return page_resolver
+    
+    def Attribute(self, name):
+        assert hasattr(self.DBModel, name), f"{self.DBModel} has not attribute {name}, resolver cannot be created"
+        # resolveReturnType = createGQLTypeResolver()
+        attr = self.attrs[name]
+        assert isinstance(attr, ColumnProperty), f"attribute {name} of model {self.DBModel} is not trivial"
+            
+        expr = attr.expression
+        python_type = expr.type.python_type
+        name = expr.name
+        def resolveattribute(self) -> Optional[python_type]:
+            return getattr(self, name)
+        return resolveattribute
+
+    # UNUSED
+    # def Scalar(self, name, GQLModel):
+    #     resolveReturnType = createGQLTypeResolver()
+    #     attr = self.attrs[name]
+    #     fkeys = list(attr._calculated_foreign_keys)
+    #     assert len(fkeys) == 1, f"too complicated relation {self.DBModel} -> {attr.entity.class_}"
+    #     fkeyname = f"{attr.entity.class_.__tablename__}.{fkeys[0].name}"
+    #     fkeyname = fkeys[0].name
+
+    #     async def resolvescalar(self, info: strawberry.types.Info) -> Optional[GQLModel]:
+    #         _GQLModel = resolveReturnType(info)
+    #         fkeyvalue = getattr(self, fkeyname)
+    #         return await _GQLModel.resolve_reference(info, id=fkeyvalue)
+    #         # return await GQLModel.resolve_reference(info, id=fkeyvalue)
+    #     return resolvescalar
+
+    def Vector(self, name, GQLModel, WhereFilterModel, skip=0, limit=10):
+        resolveReturnType = createGQLTypeResolver()
+        attr = self.attrs[name]
+        fkeys = list(attr._calculated_foreign_keys)
+        assert len(fkeys) == 1, f"too complicated relation {self.DBModel} -> {attr.entity.class_}"
+        fkeyname = f"{attr.entity.class_.__tablename__}.{fkeys[0].name}"
+        fkeyname = fkeys[0].name
+
+        async def resolvevector(self, info: strawberry.types.Info,
+            skip: Optional[int] = skip, limit: Optional[int] = limit,
+            where: Optional[WhereFilterModel] = None,
+            orderby: Optional[str] = None,
+            desc: Optional[bool] = None
+        ) -> List[GQLModel]:
+            _GQLModel = resolveReturnType(info)
+            loader = _GQLModel.getLoader(info)
+            # loader = GQLModel.getLoader(info)
+            params = {fkeyname: self.id}
+            wheredict = None if where is None else strawberry.asdict(where)
+            # async def page(self, skip=0, limit=10, where=None, orderby=None, desc=None, extendedfilter=None):
+            # print(f"call of page for {DBModel} with {params}, expecting List[{_GQLModel}]")
+            # print(f"where is {wheredict}")
+            rows = await loader.page(
+                skip=skip, limit=limit, where=wheredict, 
+                orderby=orderby, desc=desc, extendedfilter=params
+            )
+            return rows
+        return resolvevector
