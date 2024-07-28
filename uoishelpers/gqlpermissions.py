@@ -238,14 +238,14 @@ class WithRolesPermission(strawberry.BasePermission):
     
     def __init__(self):
         super().__init__()
-        self.roleIdsNeeded = None
+        self.cached_roleIdsNeeded = None
 
     async def roleIdsNeeded(self, info, roleNames):
-        if self.roleIdsNeeded is None:
+        if self.cached_roleIdsNeeded is None:
             roleIndex = await WithRolesPermission.RoleIndex(info)
             roleIdsNeeded = list(map(lambda roleName: roleIndex[roleName], roleNames))
-            self.roleIdsNeeded = roleIdsNeeded
-        return self.roleIdsNeeded
+            self.cached_roleIdsNeeded = roleIdsNeeded
+        return self.cached_roleIdsNeeded
 
 # @functools.cache
 # def RoleIndex():
@@ -265,7 +265,7 @@ def RoleBasedPermission(roles: str = ""):
         message = "User has not appropriate roles"
         def __init__(self):
             super().__init__()
-            self.roleIdsNeeded = None
+            # self.cached_roleIdsNeeded = None
 
         def on_unauthorized(self) -> None:
             return self.defaultResult
@@ -294,7 +294,12 @@ def RoleBasedPermission(roles: str = ""):
             assert rbacobject != sentinel, f"type {type(entity)} has no attribute rbacobject"
             # return False
             authorizedroles = await RBACObjectGQLModel.resolve_user_roles_on_object(info=info, rbac_id=rbacobject)
+            # print("authorizedroles", authorizedroles, flush=True)
+            assert self is not None, f"self is None {self}"
+            # print("roleNames", roleNames, flush=True)
+            # print("self.roleIdsNeeded", self.roleIdsNeeded, flush=True)
             roleIdsNeeded = await self.roleIdsNeeded(info=info, roleNames=roleNames)
+            # print("roleIdsNeeded", roleIdsNeeded, flush=True)
             allowedRoles = filter(lambda role: role["type"]["id"] in roleIdsNeeded, authorizedroles)
             isAllowed = next(allowedRoles, None)
             # logging.info(f"has_permission {kwargs}")
@@ -312,20 +317,20 @@ def MustBeOneOfPermission(roles):
     roleNames = roles.split(";")
     roleNames = list(map(lambda item: item.strip(), roleNames))
 
-    class OnlyForResultPermission(strawberry.BasePermission):
+    class OnlyForResultPermission(WithRolesPermission):
 
-        def RoleIdsNeeded(self, roleIndex, roleNames):
-            if self.roleIdsNeeded:
-                return self.roleIdsNeeded
-            self.roleIdsNeeded = list(map(lambda roleName: roleIndex[roleName], roleNames))
-            return self.roleIdsNeeded
+        def roleIdsNeeded(self, roleIndex, roleNames):
+            if self.cached_roleIdsNeeded:
+                return self.cached_roleIdsNeeded
+            self.cached_roleIdsNeeded = list(map(lambda roleName: roleIndex[roleName], roleNames))
+            return self.cached_roleIdsNeeded
 
         message = f"User must play one role of '{roles}'"
         async def has_permission(self, source, info: strawberry.types.Info, **kwargs) -> bool:
             self.defaultResult = [] if info._field.type.__class__ == StrawberryList else None
             userRoles = await RBACObjectGQLModel.resolve_user_roles(info=info)
             roleIndex = await WithRolesPermission.RoleIndex(info=info)
-            roleIdsNeeded = self.RoleIdsNeeded(roleIndex=roleIndex, roleNames=roleNames)
+            roleIdsNeeded = self.roleIdsNeeded(roleIndex=roleIndex, roleNames=roleNames)
             appropriateRoles = filter(lambda role: role["type"]["id"] in roleIdsNeeded, userRoles)
             role = next(appropriateRoles, None)
             return (role is not None)
