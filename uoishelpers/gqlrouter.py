@@ -45,6 +45,7 @@ def MountGuardedGQL(app, mountpoint="/gql", schema=None, get_context=None, DEMO=
     async def serveGQLRequest(request, item):
         try:
             context = await get_context(request)
+            context["user"] = request.scope.get("user", None)
             schemaresult = await schema.execute(query=item.query, variable_values=item.variables, operation_name=item.operationName, context_value=context)
         except Exception as e:
             logging.info(f"error during schema execute {e}")
