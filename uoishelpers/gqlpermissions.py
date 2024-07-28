@@ -4,6 +4,7 @@ import requests
 import aiohttp
 
 import strawberry
+import strawberry.types
 from strawberry.types.base import StrawberryList
 from functools import cached_property
 
@@ -98,7 +99,7 @@ class RBACObjectGQLModel:
 
     @classmethod
     def payload(cls):
-        query = """query($limit: Int) {roles: roleTypePage(limit: $limit) {id, name, nameEn}}"""
+        query = """query($limit: Int) {roleTypePage(limit: $limit) {id, name, nameEn}}"""
         variables = {"limit": 1000}
 
         json = {"query": query, "variables": variables}
@@ -122,6 +123,23 @@ class RBACObjectGQLModel:
         print("roles", roles)
         roles = list(map(lambda item: {"nameEn": item.get("name_en", None), **item, "name_en": item.get("nameEn", None)}, roles))
         return roles
+
+
+    @classmethod
+    async def resolve_all_roles_async(cls, info: strawberry.types.Info, url=None):
+        client = cls.get_async_client(info=info)
+        query = """query($limit: Int) {roles: roleTypePage(limit: $limit) {id, name, nameEn}}"""
+        variables = {"limit": 1000}
+        respJson = await client(query=query, variables=variables)
+        assert respJson.get("errors", None) is None, respJson["errors"]
+        respdata = respJson.get("data", None)
+        assert respdata is not None, "during roles reading roles have not been readed"
+        [roles, *_] = respdata.values()
+        assert roles is not None, "during roles reading roles have not been readed"
+        print("roles", roles)
+        result = list(map(lambda item: {"nameEn": item.get("name_en", None), **item, "name_en": item.get("nameEn", None)}, roles))
+        return result
+
 
     @classmethod
     async def resolve_all_roles(cls, info: strawberry.types.Info, url=None):
@@ -200,29 +218,65 @@ class RBACObjectGQLModel:
         user["roles"] = roles
         return roles
 
+def CacheIt(async_function):
+    cache = {"result": None}
+    async def wrapped(self, info: strawberry.types.Info):
+        result = cache.get("result", None)
+        if result is None:
+            result = await async_function(self, info)
+            cache["result"] = result
+        return result
+    return wrapped
+       
+class WithRolesPermission(strawberry.BasePermission):   
+    @classmethod
+    @CacheIt
+    async def RoleIndex(cls, info: strawberry.types.Info):
+        allroles = await RBACObjectGQLModel.resolve_all_roles_async(info=info)
+        result = {role["name"]: role["id"] for role in allroles}
+        return result
+    
+    def __init__(self):
+        super().__init__()
+        self.roleIdsNeeded = None
 
-@functools.cache
-def RoleIndex():
-    allroles = RBACObjectGQLModel.resolve_all_roles_sync()
-    result = {role["name"]: role["id"] for role in allroles}
-    return result
+    async def roleIdsNeeded(self, info, roleNames):
+        if self.roleIdsNeeded is None:
+            roleIndex = await WithRolesPermission.RoleIndex(info)
+            roleIdsNeeded = list(map(lambda roleName: roleIndex[roleName], roleNames))
+            self.roleIdsNeeded = roleIdsNeeded
+        return self.roleIdsNeeded
+
+# @functools.cache
+# def RoleIndex():
+#     allroles = RBACObjectGQLModel.resolve_all_roles_sync()
+#     result = {role["name"]: role["id"] for role in allroles}
+#     return result
     
 sentinel = "ea3afa47-3fc4-4d50-8b76-65e3d54cce01"
 @functools.cache
 def RoleBasedPermission(roles: str = ""):
     "roles is string with delimiter ;"
     
-    roleIndex = RoleIndex()
     roleNames = roles.split(";")
     roleNames = list(map(lambda item: item.strip(), roleNames))
-    roleIdsNeeded = list(map(lambda roleName: roleIndex[roleName], roleNames))
 
-    class RolebasedPermission(strawberry.BasePermission):
+    class RolebasedPermission(WithRolesPermission):
         message = "User has not appropriate roles"
+        def __init__(self):
+            super().__init__()
+            self.roleIdsNeeded = None
 
         def on_unauthorized(self) -> None:
             return self.defaultResult
         
+        # async def roleIdsNeeded(self, info):
+        #     if self.roleIdsNeeded is None:
+        #         roleIndex = await WithRolesPermission.RoleIndex(info)
+        #         roleIdsNeeded = list(map(lambda roleName: roleIndex[roleName], roleNames))
+        #         self.roleIdsNeeded = roleIdsNeeded
+        #     return self.roleIdsNeeded
+
         async def has_permission(
                 self, source, info: strawberry.types.Info, **kwargs: dict
             # self, source, info: strawberry.types.Info, **kwargs
@@ -240,6 +294,7 @@ def RoleBasedPermission(roles: str = ""):
             assert rbacobject != sentinel, f"type {type(entity)} has no attribute rbacobject"
             # return False
             authorizedroles = await RBACObjectGQLModel.resolve_user_roles_on_object(info=info, rbac_id=rbacobject)
+            roleIdsNeeded = await self.roleIdsNeeded(info=info, roleNames=roleNames)
             allowedRoles = filter(lambda role: role["type"]["id"] in roleIdsNeeded, authorizedroles)
             isAllowed = next(allowedRoles, None)
             # logging.info(f"has_permission {kwargs}")
@@ -254,16 +309,23 @@ def RoleBasedPermission(roles: str = ""):
 
 @functools.cache
 def MustBeOneOfPermission(roles):
-    roleIndex = RoleIndex()
     roleNames = roles.split(";")
     roleNames = list(map(lambda item: item.strip(), roleNames))
-    roleIdsNeeded = list(map(lambda roleName: roleIndex[roleName], roleNames))
 
     class OnlyForResultPermission(strawberry.BasePermission):
+
+        def RoleIdsNeeded(self, roleIndex, roleNames):
+            if self.roleIdsNeeded:
+                return self.roleIdsNeeded
+            self.roleIdsNeeded = list(map(lambda roleName: roleIndex[roleName], roleNames))
+            return self.roleIdsNeeded
+
         message = f"User must play one role of '{roles}'"
         async def has_permission(self, source, info: strawberry.types.Info, **kwargs) -> bool:
             self.defaultResult = [] if info._field.type.__class__ == StrawberryList else None
             userRoles = await RBACObjectGQLModel.resolve_user_roles(info=info)
+            roleIndex = await WithRolesPermission.RoleIndex(info=info)
+            roleIdsNeeded = self.RoleIdsNeeded(roleIndex=roleIndex, roleNames=roleNames)
             appropriateRoles = filter(lambda role: role["type"]["id"] in roleIdsNeeded, userRoles)
             role = next(appropriateRoles, None)
             return (role is not None)
