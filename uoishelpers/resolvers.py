@@ -1092,7 +1092,7 @@ class DBResolver:
             **dict(inspect(DBModel).attrs)
     }
 
-    def ById(self):
+    def ById(self, GQLModel):
         resolveReturnType = createGQLTypeResolver()    
         async def id_resolver(self, info: strawberry.types.Info, id: uuid.UUID) -> Optional[GQLModel]:
             _GQLModel = resolveReturnType(info)
