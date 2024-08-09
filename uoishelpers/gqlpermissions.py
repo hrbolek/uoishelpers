@@ -2,7 +2,7 @@ import os
 import functools
 import requests
 import aiohttp
-
+import typing
 import strawberry
 import strawberry.types
 from strawberry.types.base import StrawberryList
@@ -380,7 +380,7 @@ def RoleBasedPermissionForRUDOps(roles: str, GQLModel):
             return self.defaultResult
         
         async def has_permission(
-                self, source: Any, info: strawberry.types.Info, **kwargs: Any
+                self, source: typing.Any, info: strawberry.types.Info, **kwargs: typing.Any
             # self, source, info: strawberry.types.Info, **kwargs
             # self, source, **kwargs
         ) -> bool:
@@ -420,7 +420,7 @@ def StateBasedPermissionForRUDOps(GQLModel, parameterName=None, readPermission=T
             return self.defaultResult
         
         async def has_permission(
-                self, source: Any, info: strawberry.types.Info, **kwargs: Any
+                self, source: typing.Any, info: strawberry.types.Info, **kwargs: typing.Any
             # self, source, info: strawberry.types.Info, **kwargs
             # self, source, **kwargs
         ) -> bool:
