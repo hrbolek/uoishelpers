@@ -168,46 +168,11 @@ class RBACObjectGQLModel:
             payload = {"query": query, "variables": variables}
             async with aiohttp.ClientSession(cookies=cookies) as session:
                 async with session.post(_url, json=payload) as resp:
-                    assert resp.status == 200, f"bad status ({resp.status}) during query {query} with variables {variables} to ug point ({_url}) see {resp}"
+                    responsetxt = await resp.text()
+                    assert resp.status == 200, f"{_url} bad status during query to resolve RBAC {resp} / {responsetxt}"
                     response = await resp.json()
                     return response
         return client
-
-    @classmethod
-    async def resolve_role_types_on_state(cls, info: strawberry.types.Info, state_id, readPermission=True, writePermission=False):
-        assert readPermission != writePermission, f"readPermission and writePermission have same value"        
-        user = info.context["user"]
-        state_index = user.get("state_index", None)
-        if state_index is None:
-            state_index = {}
-            user["state_index"] = state_index
-        state_roles = state_index.get(state_id, None)
-        if state_roles is not None:
-            return state_roles["readroletypes"] if readPermission else state_roles["writeroletypes"]
-
-        asyncClient = RBACObjectGQLModel.get_async_client(info=info)
-        query = """
-query state($id: UUID!) {
-    result: stateById(id: $id) {
-        readroletypes: roletypes(access: READ) {
-            id 
-            name
-        }
-        writeroletypes: roletypes(access: WRITE) {
-            id 
-            name      
-        }
-    }
-}"""
-        variables = {"id": state_id}
-        jsonResponse = await asyncClient(query=query, variables=variables)
-        assert "errors" not in jsonResponse, f"got {jsonResponse} with errors during permission test"
-        jsonData = jsonResponse["data"]
-        assert "result" in jsonData, f"got response without result during permission test {jsonResponse}"
-        state_roles = jsonData["result"]
-        state_index[state_id] = state_roles
-        return state_roles["readroletypes"] if readPermission else state_roles["writeroletypes"]
-
 
     @classmethod
     async def resolve_user_roles_on_object(cls, info: strawberry.types.Info, rbac_id: IDType, url=None):
@@ -254,13 +219,12 @@ query state($id: UUID!) {
         [roles, *_] = me.values()
         user["roles"] = roles
         return roles
-    
+
     @classmethod
     async def resolve_role_types_on_state(cls, info: strawberry.types.Info, state_id, readPermission, writePermission):
         assert readPermission != writePermission, f"readPermission and writePermission must be different"       
         client = cls.get_async_client(info=info)
-        query = """
-query ($id: UUID!) {
+        query = """query stateById($id: UUID!) {
   stateById(id: $id) {
     id
     sources { id name }
@@ -276,12 +240,13 @@ query ($id: UUID!) {
   }
 }"""
 
-        response = await client(query=queryMe, variables={"id": f"{state_id}"})
+        response = await client(query=query, variables={"id": f"{state_id}"})
         assert "errors" not in response, f"got bad response {response}"
         [data, *_] = response.values()
-        [state, *_] = data.values()
-        roletypes = state["readroletypes"] if readPermission else state["writeroletypes"]
-        return roletypes    
+        [stateById, *_] = data.values()
+        # print("stateById", stateById, flush=True)
+        roletypes = stateById["readroletypes"] if readPermission else stateById["writeroletypes"]
+        return roletypes
 
 def CacheIt(async_function):
     cache = {"result": None}
