@@ -273,7 +273,10 @@ class WithRolesPermission(strawberry.BasePermission):
     async def roleIdsNeeded(self, info, roleNames):
         if self.cached_roleIdsNeeded is None:
             roleIndex = await WithRolesPermission.RoleIndex(info)
-            roleIdsNeeded = list(map(lambda roleName: roleIndex[roleName], roleNames))
+            roleIdsNeeded = list(
+                filter(lambda item: item is not None,
+                map(lambda roleName: roleIndex.get(roleName, None), roleNames))
+            )
             self.cached_roleIdsNeeded = roleIdsNeeded
         return self.cached_roleIdsNeeded
 
