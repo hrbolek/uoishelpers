@@ -345,6 +345,67 @@ def RoleBasedPermission(roles: str = ""):
         
     return RolebasedPermission
 
+
+sentinel = "ea3afa47-3fc4-4d50-8b76-65e3d54cce01"
+@functools.cache
+def RoleBasedPermission2(roles: str = ""):
+    "roles is string with delimiter ;"
+    
+    roleNames = roles.split(";")
+    roleNames = list(map(lambda item: item.strip(), roleNames))
+    query="""query authorized($id: UUID!, $roles_needed: [String!]!) {
+  result: rbacById(id: $id) {
+    result: userCanWithoutState(rolesNeeded: $roles_needed)
+  }
+}"""
+    class RoleBasedPermission(WithRolesPermission):
+        message = "User has not appropriate roles"
+        def __init__(self):
+            super().__init__()
+            # self.cached_roleIdsNeeded = None
+
+        def on_unauthorized(self) -> None:
+            return self.defaultResult
+        
+        # async def roleIdsNeeded(self, info):
+        #     if self.roleIdsNeeded is None:
+        #         roleIndex = await WithRolesPermission.RoleIndex(info)
+        #         roleIdsNeeded = list(map(lambda roleName: roleIndex[roleName], roleNames))
+        #         self.roleIdsNeeded = roleIdsNeeded
+        #     return self.roleIdsNeeded
+        
+        async def has_permission(
+                self, source, info: strawberry.types.Info, **kwargs: dict
+            # self, source, info: strawberry.types.Info, **kwargs
+            # self, source, **kwargs
+        ) -> bool:
+            # print("RolebasedPermission kwargs", kwargs, flush=True)
+            entity = source
+            if entity is None:
+                [entity, *_] = kwargs.values()
+            assert entity is not None, f"missing source or param {kwargs}"
+            self.defaultResult = [] if info._field.type.__class__ == StrawberryList else None
+            rbacobject = getattr(entity, "rbacobject", sentinel)
+            
+            assert rbacobject != sentinel, f"type {type(entity)} has no attribute rbacobject"
+
+            asyncClient = RBACObjectGQLModel.get_async_client(info=info)
+            response = await asyncClient(
+                query=query, 
+                variables={
+                    "id": rbacobject,
+                    "roles_needed": roleNames
+                })
+            assert "errors" not in response, f"RoleBasedPermission.has_permission got errors while asking gql_ug {response}"
+            assert "data" in response, f"RoleBasedPermission.has_permission got not data while asking gql_ug {response}"
+            data = response["data"]
+            result = data["result"]
+            judgement = result["result"]
+            return judgement
+        
+    return RoleBasedPermission
+
+
 @functools.cache
 def MustBeOneOfPermission(roles):
     roleNames = roles.split(";")

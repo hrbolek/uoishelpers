@@ -66,7 +66,7 @@ def MountGuardedGQL(app, mountpoint="/gql", schema=None, get_context=None, DEMO=
                 } for error in schemaresult.errors]
         return result
 
-    if DEMO == "False":
+    if DEMO in ["False", "false"]:
         @app.post(mountpoint)
         async def apollo_gql(request: Request, item: Item):
 
