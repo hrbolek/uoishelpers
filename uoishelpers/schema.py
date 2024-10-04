@@ -61,9 +61,9 @@ class WhoAmIExtension(SchemaExtension):
         if query not in [apolloQuery, graphiQLQuery]:
             whoami = await self.ug_query(query=myquery)
             whoami = whoami["data"]["me"]
-            self.execution_context.context["user"] = whoami
         else:
             whoami = {}
+        self.execution_context.context["user"] = whoami
 
         # print("->on_execute", self.execution_context.query, flush=True)
         yield
