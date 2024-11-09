@@ -2,6 +2,8 @@ import datetime
 import logging
 import uuid
 import json
+import functools
+import typing
 
 from aiodataloader import DataLoader
 from uoishelpers.resolvers import select, update, delete
@@ -129,7 +131,32 @@ def prepareSelect(model, where: dict, extendedfilter=None):
     result = baseStatement.filter(filterStatement)
     return result
 
-def createIdLoader(asyncSessionMaker, dbModel):
+DBModel = typing.TypeVar("DBModel")
+class IDLoader(DataLoader[uuid.UUID, DBModel]):
+    async def load(self, key):
+        ...
+    async def insert(self, entity, extraAttributes={}) -> DBModel:
+        ...
+    async def update(self, entity, extraValues={}) -> typing.Optional[DBModel]:
+        ...
+    async def delete(self, id):
+        ...
+    def getModel(self):
+        ...
+    async def execute_select(self, statement):
+        ...
+    async def filter_by(self, **filters) -> typing.List[DBModel]:
+        ...
+    async def page(self, skip=0, limit=10, where=None, orderby=None, desc=None, extendedfilter=None) -> typing.List[DBModel]:
+        ...
+
+def createIdLoader(asyncSessionMaker, dbModel: DBModel) -> IDLoader[DBModel]:
+    @functools.cache
+    def createFkeySpecificLoader(foreignKeyName=None):
+        return createFkeyLoader(
+            asyncSessionMaker=asyncSessionMaker,
+            dbModel=dbModel,
+            foreignKeyName=foreignKeyName)
 
     mainstmt = select(dbModel)
     filtermethod = dbModel.id.in_
@@ -234,9 +261,16 @@ def createIdLoader(asyncSessionMaker, dbModel):
                 )
             
         async def filter_by(self, **filters):
-            statement = mainstmt.filter_by(**filters)
-            logging.debug(f"loader is executing statement {statement}")
-            return await self.execute_select(statement)
+            if len(filters) == 1:
+                for key, value in filters.items():
+                    break
+                fkeyloader = createFkeySpecificLoader(foreignKeyName=key)
+                results = await fkeyloader.load(value)
+                registeredresults = (self.registerResult(result) for result in results)
+                return registeredresults
+            else:
+                statement = mainstmt.filter_by(**filters)
+                return await self.execute_select(statement)
 
         async def page(self, skip=0, limit=10, where=None, orderby=None, desc=None, extendedfilter=None):
             if where is not None:
