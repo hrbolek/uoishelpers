@@ -307,21 +307,25 @@ def createFkeyLoader(asyncSessionMaker, dbModel, foreignKeyName=None):
     filtermethod = fkeyattr.in_
     class Loader(DataLoader):
         async def batch_load_fn(self, keys):
+            _keys = [*keys]
             #print('batch_load_fn', keys, flush=True)
             async with asyncSessionMaker() as session:
-                statement = mainstmt.filter(filtermethod(keys))
+                statement = mainstmt.filter(filtermethod(_keys))
                 rows = await session.execute(statement)
                 rows = rows.scalars()
                 rows = list(rows)
-                groupedResults = dict((key, [])  for key in keys)
+                groupedResults = dict((key, [])  for key in _keys)
                 for row in rows:
                     #print(row)
                     foreignKeyValue = getattr(row, foreignKeyName)
-                    groupedResult = groupedResults[foreignKeyValue]
+                    groupedResult = groupedResults.get(foreignKeyValue, None)
+                    if groupedResult is None:
+                        groupedResult = []
+                        groupedResults[foreignKeyName] = groupedResult
                     groupedResult.append(row)
                     
                 #print(groupedResults)
-                return (groupedResults.values())   
+                return (groupedResults[key] for key in _keys)
     return Loader(cache=True)
 
 from functools import cache
