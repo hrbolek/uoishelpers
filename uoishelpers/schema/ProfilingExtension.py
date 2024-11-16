@@ -1,4 +1,5 @@
-
+import time
+import strawberry
 
 class Counter:
     def __init__(self):
