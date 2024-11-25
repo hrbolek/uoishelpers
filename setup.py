@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
       name='uoishelpers',
 
-      version='0.1',
+      version='0.3',
       description='Library for _uois project.',
       url='http://github.com/hrbolek/uoishelpers',
       author='Profesor Hrbolek',
