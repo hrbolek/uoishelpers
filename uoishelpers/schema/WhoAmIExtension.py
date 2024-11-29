@@ -15,7 +15,7 @@ myquery = """
     id
     fullname
     email
-    roles {
+    roles(where: {valid: {_eq: true}}, limit: 1000) {
       valid
       group { id name }
       roletype { id name }
