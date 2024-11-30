@@ -29,6 +29,8 @@ from .Insert import Insert, InsertError
 from .Update import Update, UpdateError
 from .Delete import Delete, DeleteError
 from .fromContext import getLoadersFromInfo, getUserFromInfo
+from .PageResolver import PageResolver
+from .VectorResolver import VectorResolver
 
 @asynccontextmanager
 async def withInfo(info):
