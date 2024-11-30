@@ -517,3 +517,88 @@ def StateBasedPermissionForRUDOps(GQLModel, parameterName=None, readPermission=T
             return appropriateRole is not None
 
     return StateBasedPermissionResult
+
+
+def createSimpleReadPermission(roles):
+    class ResultPermission(strawberry.permission.BasePermission):
+        def has_permission(
+            self, source: typing.Any, info: strawberry.types.Info, **kwargs: typing.Any
+        ) -> typing.Union[bool, typing.Awaitable[bool]]:
+            self.defaultResult = [] if info._field.type.__class__ == StrawberryList else None
+            user = getUserFromInfo(info=info)
+            assert "roles" in user, f"missing info about user roles, is WhoAmIExtension configured properly?"
+            userroles = user["roles"]
+            filteredroles = filter(lambda r: r in roles, userroles)
+            appropriaterole = next(filteredroles, None)
+            hasrole = appropriaterole is not None
+            return hasrole
+    return ResultPermission
+
+def SimpleReadPermission():
+    @functools.cache
+    def CachedResultFunc(rolestr):
+        roles = rolestr.split(";")
+        return createSimpleReadPermission(roles)
+    
+    def ResultFunc(roles):
+        rolestr = ";".join(roles)
+        return CachedResultFunc(rolestr)
+    
+    return ResultFunc
+SimpleReadPermission = SimpleReadPermission()
+
+from .resolvers import InsertError, UpdateError, DeleteError
+class SimpleUpdatePermission(strawberry.permission.BasePermission):
+    type_arg = None  # Placeholder for the generic type argument
+    roles = []
+
+    @classmethod
+    @functools.cache
+    def __class_getitem__(cls, item):
+        # When MyGenericClass[int] is accessed, create a new class with type_arg set and cache it
+        
+        @functools.cache
+        def cachedresult(rolestr):
+            roles = rolestr.split(";")
+            new_cls = type(f"{cls.__name__}[{item.__name__}]", (cls,), {"type_arg": item, "roles": roles})
+            return new_cls
+
+        def result(roles):
+            for role in roles:
+                assert isinstance(role, str)
+            rolestr = ";".join(roles)
+            return cachedresult(rolestr)
+
+        return result
+
+    def has_permission(
+        self, source: typing.Any, info: strawberry.types.Info, **kwargs: typing.Any
+    ) -> typing.Union[bool, typing.Awaitable[bool]]:
+        cls = type(self)
+        user = getUserFromInfo(info=info)
+        assert "roles" in user, f"missing info about user roles, is WhoAmIExtension configured properly?"
+        # print(f"userroles: {user['roles']}", flush=True)
+        userroles = (r["roletype"]["name"] for r in user["roles"])
+        filteredroles = filter(lambda r: r in cls.roles, userroles)
+        appropriaterole = next(filteredroles, None)
+        hasrole = appropriaterole is not None
+        self.source = source
+        self.kwargs = kwargs
+        return hasrole
+    
+    def on_unauthorized(self):
+        cls = type(self)
+        value = next(iter(self.kwargs.values()), None)
+        return UpdateError[cls.type_arg](msg=f"user must have one of roles: {cls.roles}", _entity=self.source, _input=value)
+
+class SimpleDeletePermission(SimpleUpdatePermission):
+    def on_unauthorized(self):
+        cls = type(self)
+        value = next(iter(self.kwargs.values()), None)
+        return DeleteError[cls.type_arg](msg=f"user must have one of roles: {cls.roles}", _entity=self.source, _input=value)
+
+class SimpleInsertPermission(SimpleUpdatePermission):
+    def on_unauthorized(self):
+        cls = type(self)
+        value = next(iter(self.kwargs.values()), None)
+        return InsertError[cls.type_arg](msg=f"user must have one of roles: {cls.roles}", _input=value)
