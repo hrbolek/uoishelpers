@@ -6,7 +6,8 @@ sentinel = "893b4f74-c4b7-4b35-b638-6592b5ff48ea"
 class PageResolver:
     """
     PageResolver[UserGQLModel](whereType=UserFilterGQLModel)
-    """    @classmethod
+    """    
+    @classmethod
     def __class_getitem__(cls, item):
         listType = item
         def result(*, whereType):
