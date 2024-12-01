@@ -33,9 +33,9 @@ class VectorResolver(typing.Generic[T]):
             
             async def resolver(self, info: strawberry.Info, skip: typing.Optional[int]=0, limit: typing.Optional[int]=10, orderby: typing.Optional[str]=None, where: typing.Optional[whereType]=None) -> typing.List[listType]:
                 if not initialized: resolveResultType(info=info)
-                value = getattr(self, fkey_field_name, sentinel)
-                assert (value != sentinel), f"missing value {listType}.{fkey_field_name}"
-                extendedfilter = {fkey_field_name: value}
+                # value = getattr(self, fkey_field_name, sentinel)
+                # assert (value != sentinel), f"missing value {listType}.{fkey_field_name}"
+                extendedfilter = {fkey_field_name: self.id}
                 loader = listType.getLoader(info=info)
                 where = None if where is None else strawberry.asdict(where)
                 results = await loader.page(skip=skip, limit=limit, orderby=orderby, where=where, extendedfilter=extendedfilter)
