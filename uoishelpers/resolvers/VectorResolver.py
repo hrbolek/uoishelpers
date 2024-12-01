@@ -13,7 +13,7 @@ class VectorResolver(typing.Generic[T]):
     @functools.cache
     def __class_getitem__(cls, item):
         @functools.cache
-        def result(*, fkey_field_name):
+        def result(*, fkey_field_name, whereType):
             listType = None
             initialized = False
             def resolveResultType(info: strawberry.types.Info):
