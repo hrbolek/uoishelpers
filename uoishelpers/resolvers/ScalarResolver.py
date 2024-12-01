@@ -1,5 +1,7 @@
 import typing
+import functools
 import strawberry
+
 from strawberry import LazyType 
 sentinel = "893b4f74-c4b7-4b35-b638-6592b5ff48ea"
 
@@ -48,25 +50,26 @@ class ScalarResolver(typing.Generic[T]):
     """
 
     @classmethod
+    @functools.cache
     def __class_getitem__(cls, item):
-        scalarType = None
-        initialized = False
-        def resolveResultType(info: strawberry.types.Info):
-            return_type = info.return_type
-            if (return_type.__class__.__name__ == "StrawberryOptional"):
-                return_type = return_type.of_type
-
-            if (return_type.__class__.__name__ == "StrawberryList"):
-                return_type = return_type.of_type
-
-            if (isinstance(return_type, strawberry.LazyType)):
-                return_type = return_type.resolve_type()
-
-            nonlocal scalarType
-            scalarType = return_type
-            return return_type
-
+        @functools.cache
         def result(*, fkey_field_name):
+            scalarType = None
+            initialized = False
+            def resolveResultType(info: strawberry.types.Info):
+                return_type = info.return_type
+                if (return_type.__class__.__name__ == "StrawberryOptional"):
+                    return_type = return_type.of_type
+
+                if (return_type.__class__.__name__ == "StrawberryList"):
+                    return_type = return_type.of_type
+
+                if (isinstance(return_type, strawberry.LazyType)):
+                    return_type = return_type.resolve_type()
+
+                nonlocal scalarType
+                scalarType = return_type
+                return return_type            
             async def resolver(self, info: strawberry.Info) -> typing.Optional[scalarType]:
                 if not initialized: resolveResultType(info=info)
                 value = getattr(self, fkey_field_name, sentinel)
