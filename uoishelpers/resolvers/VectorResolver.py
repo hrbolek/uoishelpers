@@ -3,7 +3,8 @@ import strawberry
 
 sentinel = "893b4f74-c4b7-4b35-b638-6592b5ff48ea"
 
-class VectorResolver:
+T = typing.TypeVar("GQLModel")
+class VectorResolver(typing.Generic[T]):
     """
     VectorResolver[UserGQLModel](fkey_field_name="user_id", whereType=UserFilterGQLModel)
     """
