@@ -31,6 +31,7 @@ from .Delete import Delete, DeleteError
 from .fromContext import getLoadersFromInfo, getUserFromInfo
 from .PageResolver import PageResolver
 from .VectorResolver import VectorResolver
+from .ScalarResolver import ScalarResolver
 
 @asynccontextmanager
 async def withInfo(info):
