@@ -3,7 +3,8 @@ import strawberry
 
 sentinel = "893b4f74-c4b7-4b35-b638-6592b5ff48ea"
 
-class PageResolver:
+T = typing.TypeVar("GQLModel")
+class PageResolver(typing.Generic[T]):
     """
     PageResolver[UserGQLModel](whereType=UserFilterGQLModel)
     """    
