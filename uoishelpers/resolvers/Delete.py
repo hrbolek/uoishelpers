@@ -8,7 +8,7 @@ from .IDType import IDType
 
 DeleteType = typing.TypeVar("GQLEntityType")    
 
-@strawberry.federation.type(keys=["id"])
+@strawberry.type(description="Error object returned as an result of Delete operation")
 class DeleteError(typing.Generic[DeleteType]):
     _entity: typing.Optional[DeleteType] = strawberry.field(default=None, description="Entity to be updated")
     msg: str = strawberry.field(default=None, description="reason of fail")

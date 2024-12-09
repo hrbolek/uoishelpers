@@ -8,7 +8,7 @@ from .IDType import IDType
 
 UpdateType = typing.TypeVar("GQLEntityType")    
 
-@strawberry.federation.type(keys=["id"])
+@strawberry.type(description="Error object returned as an result of Update operation")
 class UpdateError(typing.Generic[UpdateType]):
     _entity: typing.Optional[UpdateType] = strawberry.field(default=None, description="Entity to be updated")
     msg: str = strawberry.field(default=None, description="reason of fail")

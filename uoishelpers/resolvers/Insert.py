@@ -9,7 +9,7 @@ from .IDType import IDType
 
 InputType = typing.TypeVar("GQLInputType")  
 
-@strawberry.federation.type(keys=["id"])
+@strawberry.type(description="Error object returned as an result of Insert operation")
 class InsertError(typing.Generic[InputType]):
     msg: str = strawberry.field(default=None, description="reason of fail")
     _input: strawberry.Private[object]
