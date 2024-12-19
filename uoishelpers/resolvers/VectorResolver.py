@@ -29,6 +29,8 @@ class VectorResolver(typing.Generic[T]):
 
                 nonlocal listType
                 listType = return_type
+                nonlocal initialized
+                initialized = True
                 return return_type    
             
             async def resolver(self, info: strawberry.Info, skip: typing.Optional[int]=0, limit: typing.Optional[int]=10, orderby: typing.Optional[str]=None, where: typing.Optional[whereType]=None) -> typing.List[listType]:

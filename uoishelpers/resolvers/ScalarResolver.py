@@ -69,6 +69,8 @@ class ScalarResolver(typing.Generic[T]):
 
                 nonlocal scalarType
                 scalarType = return_type
+                nonlocal initialized
+                initialized = True
                 return return_type            
             async def resolver(self, info: strawberry.Info) -> typing.Optional[scalarType]:
                 if not initialized: resolveResultType(info=info)

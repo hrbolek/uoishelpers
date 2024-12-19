@@ -11,8 +11,27 @@ class PageResolver(typing.Generic[T]):
     @classmethod
     def __class_getitem__(cls, item):
         listType = item
+        initialized = False
+        def resolveResultType(info: strawberry.types.Info):
+            return_type = info.return_type
+            if (return_type.__class__.__name__ == "StrawberryOptional"):
+                return_type = return_type.of_type
+
+            if (return_type.__class__.__name__ == "StrawberryList"):
+                return_type = return_type.of_type
+
+            if (isinstance(return_type, strawberry.LazyType)):
+                return_type = return_type.resolve_type()
+
+            nonlocal listType
+            listType = return_type
+            nonlocal initialized
+            initialized = True
+            return return_type    
+            
         def result(*, whereType):
             async def resolver(self, info: strawberry.Info, skip: typing.Optional[int]=0, limit: typing.Optional[int]=10, orderby: typing.Optional[str]=None, where: typing.Optional[whereType]=None) -> typing.List[listType]:
+                if not initialized: resolveResultType(info=info)
                 loader = listType.getLoader(info=info)
                 where = None if where is None else strawberry.asdict(where)
                 results = await loader.page(skip=skip, limit=limit, orderby=orderby, where=where)
