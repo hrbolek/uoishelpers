@@ -70,6 +70,7 @@ class WhoAmIExtension(SchemaExtension):
         else:
             whoami = {}
         self.execution_context.context["user"] = whoami
+        self.execution_context.context["ug_client"] = self.ug_query
 
         # print("->on_execute", self.execution_context.query, flush=True)
         yield
