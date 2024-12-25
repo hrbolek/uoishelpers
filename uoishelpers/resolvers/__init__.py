@@ -28,7 +28,7 @@ from .IDType import IDType
 from .Insert import Insert, InsertError
 from .Update import Update, UpdateError
 from .Delete import Delete, DeleteError
-from .fromContext import getLoadersFromInfo, getUserFromInfo
+from .fromContext import getLoadersFromInfo, getUserFromInfo, getUgClientFromInfo
 from .PageResolver import PageResolver
 from .VectorResolver import VectorResolver
 from .ScalarResolver import ScalarResolver
