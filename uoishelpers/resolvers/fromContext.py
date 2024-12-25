@@ -15,6 +15,6 @@ def getLoadersFromInfo(info: strawberry.types.Info):
     return result
 
 def getUgClientFromInfo(info: strawberry.types.Info):
-    result = info.context.get("ug_client" None)
+    result = info.context.get("ug_client", None)
     assert result is not None, "You must use WhoAmIExtension"
     return result    
