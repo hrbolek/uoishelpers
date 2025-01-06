@@ -1,3 +1,4 @@
+import uuid
 import typing
 import datetime
 import strawberry
@@ -47,6 +48,11 @@ class Insert:
             if rbacobject != sentinel:
                 if rbacobject is None:
                     entity.rbacobject_id = id
+
+            idvalue = getattr(entity, "id", sentinel)
+            if idvalue is None:
+                entity.id = uuid.uuid4()
+
             entity.createdby_id = id
             # print(f"entity {entity}")
             row = await loader.insert(entity)
