@@ -30,7 +30,12 @@ class PageResolver(typing.Generic[T]):
             return return_type    
             
         def result(*, whereType):
-            async def resolver(self, info: strawberry.Info, skip: typing.Optional[int]=0, limit: typing.Optional[int]=10, orderby: typing.Optional[str]=None, where: typing.Optional[whereType]=None) -> typing.List[listType]:
+            async def resolver(self, info: strawberry.Info, 
+                skip: typing.Annotated[typing.Optional[int], strawberry.argument(description="how many entities will be ignored")]=0, 
+                limit: typing.Annotated[typing.Optional[int], strawberry.argument(description="how many entities will be taken")]=10, 
+                orderby: typing.Annotated[typing.Optional[str], strawberry.argument(description="name of field which will determite the order")]=None, 
+                where: typing.Annotated[typing.Optional[whereType], strawberry.argument(description="filter")]=None, 
+            ) -> typing.List[listType]:
                 if not initialized: resolveResultType(info=info)
                 loader = listType.getLoader(info=info)
                 where = None if where is None else strawberry.asdict(where)

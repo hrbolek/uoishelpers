@@ -33,7 +33,12 @@ class VectorResolver(typing.Generic[T]):
                 initialized = True
                 return return_type    
             
-            async def resolver(self, info: strawberry.Info, skip: typing.Optional[int]=0, limit: typing.Optional[int]=10, orderby: typing.Optional[str]=None, where: typing.Optional[whereType]=None) -> typing.List[listType]:
+            async def resolver(self, info: strawberry.Info, 
+                skip: typing.Annotated[typing.Optional[int], strawberry.argument(description="how many entities will be ignored")]=0, 
+                limit: typing.Annotated[typing.Optional[int], strawberry.argument(description="how many entities will be taken")]=10, 
+                orderby: typing.Annotated[typing.Optional[str], strawberry.argument(description="name of field which will determite the order")]=None, 
+                where: typing.Annotated[typing.Optional[whereType], strawberry.argument(description="filter")]=None, 
+            ) -> typing.List[listType]:
                 if not initialized: resolveResultType(info=info)
                 # value = getattr(self, fkey_field_name, sentinel)
                 # assert (value != sentinel), f"missing value {listType}.{fkey_field_name}"
