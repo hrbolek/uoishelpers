@@ -1,6 +1,8 @@
 import uuid
+import dataclasses
 import sqlalchemy
 import strawberry  # strawberry-graphql==0.119.0
+
 from sqlalchemy import inspect
 from sqlalchemy.orm import ColumnProperty
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -47,7 +49,158 @@ async def withInfo(info):
 
 inputTypeGQLMapper = {}
 
-def createInputs(cls):
+def get_field_or_default(source_cls, name, default_field):
+    """
+    Pokud má původní třída source_cls na attributu name definovaný
+    dataclasses.Field (tedy strawberry.field), vrať ho; jinak default_field.
+    """
+    val = getattr(source_cls, name, None)
+    if isinstance(val, dataclasses.Field):
+        return val
+    return default_field
+
+def createInputs(arg=None, *, v2: bool = False):
+    """
+    Decoder decorator: @createInputs  nebo  @createInputs(v2=True)
+
+    Pokud v2=True, použije createInputs2 a ověří, že cls ještě není dataclass.
+    Jinak zavolá původní createInputs_old.
+    """
+    def _decorate(cls):
+        if v2:
+            # u nové verze je třeba ji aplikovat **před** @dataclass
+            if dataclasses.is_dataclass(cls):
+                raise TypeError(
+                    "createInputs(v2=True) must wrap the plain class, not an already-@dataclass class"
+                )
+            return createInputs2(cls)
+        else:
+            return createInputs_old(cls)
+
+    # případ bez závorek: @createInputs
+    if arg is not None and isinstance(arg, type):
+        return _decorate(arg)
+
+    # případ s (možnými) parametry: @createInputs(...)  
+    return _decorate
+
+def createInputs2(cls):
+    """
+    Dekorátor nad @dataclass, který pro každý field v cls.__annotations__
+    vygeneruje odpovídající filter‑input typ a pak 'where', 'and' a 'or' typy.
+    Pokud už máš u původní dataclassi k field strawberry.field(...),
+    zachová ho a nepřepíše.
+    """
+    clsname = cls.__name__
+    whereName = clsname
+    orName    = f"{clsname}_or"
+    andName   = f"{clsname}_and"
+
+    fieldNames = list(cls.__annotations__.keys())
+    types_     = list(cls.__annotations__.values())
+
+    customInputs = []
+    # print(f"description of {clsname}\n{cls.__dataclass_fields__}")
+    # 1) Projdeme každé pole a vyrobíme mu vlastní Input typ
+    for field, baseType in zip(fieldNames, types_):
+        # Pokud už máme mapování pro baseType, použijeme ho
+        existing = inputTypeGQLMapper.get(baseType)
+        print(f"filter for {clsname}.{field}")
+        original = getattr(cls, field, None)
+
+        if existing and original is None:
+            print("existing and original is None")
+            customInputs.append(existing)
+            continue
+        if existing:
+            print(f"existing {existing}")
+            # tady už original není None, přenes jeho default z dataclasses
+            NewInput = type(f"{clsname}_{field}", (existing,), {})
+            NewInput.__annotations__ = { field: typing.Optional[baseType] }
+            setattr(NewInput, field, original)
+            gqlInput = strawberry.input(NewInput)
+            customInputs.append(gqlInput)
+            continue
+
+        # Jinak vytvoříme nový pomocný typ
+        inputName = f"{clsname}_{field}"
+        NewInput = type(inputName, (), {})
+        NewInput.__annotations__ = { field: typing.Optional[baseType] }
+
+        # Zjistíme, jestli původní dataclass měl strawberry.field
+        original = getattr(cls, field, None)
+        if isinstance(original, dataclasses.Field):
+            # zachováme ho beze změny
+            setattr(NewInput, field, original)
+        else:
+            # nebo vytvoříme defaultní
+            setattr(
+                NewInput, field,
+                strawberry.field(
+                    description="operation for select.filter() method",
+                    default=None
+                )
+            )
+
+        # Oblečeme to do strawberry.input
+        gqlInput = strawberry.input(
+            NewInput,
+            description=f"Expression on attribute '{field}'. Only one constraint allowed."
+        )
+        # Uložíme si do mapperu a přidáme do seznamu
+        inputTypeGQLMapper[baseType] = gqlInput
+        customInputs.append(gqlInput)
+
+    # 2) Sestavíme slovník fieldName → jeho Input typ pro další operátory
+    inputTypesDict = {
+        field: typing.Optional[it]
+        for field, it in zip(fieldNames, customInputs)
+    }
+
+    # 3) Helper na vytvoření 'or', 'and' i samotného 'where'
+    def buildOpType(typeName: str, extra: dict):
+        Op = type(typeName, (), {})
+        annotations = { **extra, **inputTypesDict }
+        Op.__annotations__ = annotations
+
+        for op_field in annotations:
+            default_field = get_field_or_default(
+                cls, op_field,
+                strawberry.field(name=op_field, description="Filter method", default=None)
+            )
+            setattr(Op, op_field, default_field)
+
+        return strawberry.input(
+            Op,
+            name=typeName,
+            description=f"{typeName} operator for {clsname}"
+        )
+
+    orOp = buildOpType(orName, {"_and": typing.Optional[typing.List[andName]]})
+    andOp = buildOpType(andName, {"_or": typing.Optional[typing.List[orName]]})
+    whereOp = buildOpType(
+        whereName,
+        {
+            "_or":  typing.Optional[typing.List[orName]],
+            "_and": typing.Optional[typing.List[andName]],
+        }
+    )
+
+    # 4) Exportujeme všechny nově vytvořené typy do modulu, kde byla dataclass
+    mod = sys.modules[__name__]
+    for typ in [whereOp, andOp, orOp, *customInputs]:
+        setattr(mod, typ.__name__, typ)
+
+    return whereOp
+
+def createInputs_old(cls):
+    """
+    Dekorátor nad @dataclass, který pro každý field v cls.__annotations__
+    vygeneruje odpovídající filter‑input typ a pak 'where', 'and' a 'or' typy.
+    Pokud už máš u původní dataclassi k field strawberry.field(...),
+    zachová ho a nepřepíše.
+    """
+
     clsname = cls.__name__
     # print(f"GQL definitions for {clsname}")
     #whereName = clsname + "_where"
