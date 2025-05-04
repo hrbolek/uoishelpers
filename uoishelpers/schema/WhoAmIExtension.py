@@ -66,10 +66,11 @@ class WhoAmIExtension(SchemaExtension):
         query = self.execution_context.query
         print(f"Executing {query}")
         if query not in [apolloQuery, graphiQLQuery, sdlQuery]:
-            whoami = await self.ug_query(query=mequery)
             try:
+                whoami = await self.ug_query(query=mequery)
                 whoami = whoami["data"]["me"]
             except:
+                print("error with ug endpoint")
                 whoami = {}
         else:
             whoami = {}
