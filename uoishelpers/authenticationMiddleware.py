@@ -48,8 +48,8 @@ class BasicAuthBackend(AuthenticationBackend):
         conn.url.path
         logging.debug(f'{base_url} {client}, {headers}, {cookies}')
         logging.debug(f'{uri}')
-        print(f'{base_url} {client}, {headers}, {cookies}')
-        print(f'{uri}')        
+        # print(f'{base_url} {client}, {headers}, {cookies}')
+        # print(f'{uri}')        
         
         # 1. ziskat jwt (cookies authorization nebo header Authorization: Bearer )
         jwtsource = cookies.get("authorization", None)
@@ -86,11 +86,11 @@ class BasicAuthBackend(AuthenticationBackend):
             publickey = await self.getPublicKey()
             print('publickey refreshed', publickey)
         
-        print('got jwtdecoded', jwtdecoded)
+        # print('got jwtdecoded', jwtdecoded)
 
         # 3A. pokud jwt obsahuje user.id, vzit jej primo
         user_id = jwtdecoded.get("user_id", None)
-        print("some user?", user_id)
+        # print("some user?", user_id)
         userinfo = {"id": user_id}
         # 4. pouzit jwt jako parametr pro identifikaci uzivatele u autority
         if user_id is None:
@@ -108,7 +108,7 @@ class BasicAuthBackend(AuthenticationBackend):
         if user_id is None:
             raise AuthenticationError(f"Unknown user")
             
-        print("# SUCCESS #######################################")
+        # print("# SUCCESS #######################################")
         return AuthCredentials(["authenticated"]), userinfo
     
 from starlette.requests import HTTPConnection
