@@ -113,6 +113,7 @@ class InputModelMixin:
             setattr(instance, key, _convert(info, original))
         return instance
     
+from sqlalchemy.orm import Session    
 class TreeInputStructureMixin(InputModelMixin):
     """
     Mixin providing generic tree structure logic for all Strawberry input models.
@@ -126,9 +127,48 @@ class TreeInputStructureMixin(InputModelMixin):
     
     def intoModel(self, info: strawberry.types.Info):
         result = super().intoModel(info)
+
+
+        def buildTreeStructure(instance, current_path=None, _visited=None):
+            DBModel = type(instance)
+            if _visited is None:
+                _visited = set()
+            if instance.id in _visited:
+                return  # ochrana proti cyklení
+            _visited.add(instance.id)
+            # Pokud je current_path None, nastav na path rodiče nebo na None (pokud není rodič)
+            if current_path is None:
+                session = Session.object_session(instance)
+                # Získej path nadřazené skupiny (nebo None, pokud žádná není)
+                parent = getattr(instance, DBModel.parent_attribute_name, None)
+                parent_id = getattr(instance, DBModel.parent_id_attribute_name, None)
+                if parent:
+                    current_path = getattr(parent, DBModel.path_attribute_name, None)
+                elif parent_id:
+                    parent = session.get(DBModel, parent_id)
+                    current_path = getattr(parent, DBModel.path_attribute_name, None) if parent else None
+                else:
+                    current_path = None
+            # Nastav path pro aktuální instanci
+            instance.path = f"{current_path}/{instance.id}" if current_path else str(instance.id)
+            # Rekurzivně nastav path potomkům
+            children = getattr(instance, DBModel.children_attribute_name, None)
+            assert children is not None, "Children should not be None here, probably this method is used in operation other than insert."
+            for child in children:
+                if child is None:
+                    continue
+                if not isinstance(child, DBModel):
+                    raise TypeError(f"Expected child of type {DBModel.__name__}, got {type(child).__name__}")
+                buildTreeStructure(child, instance.path, _visited=_visited)
+            return instance        
+
         if hasattr(result, "buildTreeStructure"):
             return result.buildTreeStructure()
         else:
-            raise NotImplementedError(
-                f"Class {result.__class__.__name__} must implement buildTreeStructure()."
-            )
+            assert hasattr(result, "parent_attribute_name"), "Class {result.__class__.__name__} must have parent_attribute_name defined."
+            assert hasattr(result, "path_attribute_name"), "Class {result.__class__.__name__} must have path_attribute_name defined."
+            assert hasattr(result, "children_attribute_name"), "Class {result.__class__.__name__} must have children_attribute_name defined."
+            assert hasattr(result, "parent_id_attribute_name"), "Class {result.__class__.__name__} must have parent_id_attribute_name defined."
+            return buildTreeStructure(result, current_path=None, _visited=set())
+
+        
