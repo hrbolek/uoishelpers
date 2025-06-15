@@ -112,3 +112,23 @@ class InputModelMixin:
                 continue
             setattr(instance, key, _convert(info, original))
         return instance
+    
+class TreeInputStructureMixin(InputModelMixin):
+    """
+    Mixin providing generic tree structure logic for all Strawberry input models.
+    Subclasses must implement getLoader().
+    """
+    @classmethod
+    def getLoader(cls, info: strawberry.types.Info):
+        raise NotImplementedError(
+            f"Class {cls.__name__} must implement getLoader()."
+        )
+    
+    def intoModel(self, info: strawberry.types.Info):
+        result = super().intoModel(info)
+        if hasattr(result, "buildTreeStructure"):
+            return result.buildTreeStructure()
+        else:
+            raise NotImplementedError(
+                f"Class {result.__class__.__name__} must implement buildTreeStructure()."
+            )
