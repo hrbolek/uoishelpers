@@ -4,7 +4,7 @@ import uuid
 import json
 import functools
 import typing
-
+import sqlalchemy
 from aiodataloader import DataLoader
 from uoishelpers.resolvers import select, update, delete
 
@@ -238,6 +238,56 @@ def createIdLoader(asyncSessionMaker, dbModel: DBModel) -> IDLoader[DBModel]:
                 await session.commit()
                 self.clear(id)
                 return result
+
+        async def move_subtree(self, node_id, new_parent_id):
+            
+            async with self.getAsyncSessionMaker()() as session:
+                # Načti node a nového parenta (kvůli path)
+                node = await session.get(self.getModel(), node_id)
+                if node is None:
+                    raise ValueError("Node not found")
+
+                old_path = node.path
+                if new_parent_id is None:
+                    new_parent_path = None
+                else:
+                    new_parent = await session.get(self.getModel(), new_parent_id)
+                    if new_parent is None:
+                        raise ValueError("New parent not found")
+                    new_parent_path = new_parent.path
+
+                # Vytvoř novou path pro root node
+                new_path = f"{new_parent_path}/{node.id}" if new_parent_path else str(node.id)
+
+                # Aktualizuj parent_id a path pro přesouvaný node
+                setattr(node, node.parent_id_attribute_name, new_parent_id)
+                setattr(node, node.path_attribute_name, new_path)
+
+                await session.flush()
+
+                # Bulk update podstromu (všech potomků)
+                # (prefix musí být old_path + '/' kvůli správnému matchování)
+                path_attr = getattr(self.getModel(), node.path_attribute_name)
+                await session.execute(
+                    update(self.getModel())
+                    .where(path_attr.like(f"{old_path}/%"))
+                    .values({
+                        node.path_attribute_name:
+                            sqlalchemy.func.concat(
+                                new_path,
+                                sqlalchemy.func.substr(path_attr, len(old_path) + 1)
+                            )
+                    })
+                )
+
+                await session.commit()
+
+                # Vyčisti/aktualizuj cache, pokud máš
+                self.clear(node.id)
+                self.prime(node.id, node)
+                # Pokud máš další mechanismus na potomky, doporučuji clear pro ně (volitelné)
+
+                return node
 
         def registerResult(self, result):
             self.clear(result.id)
