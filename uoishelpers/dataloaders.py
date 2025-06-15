@@ -175,9 +175,12 @@ def createIdLoader(asyncSessionMaker, dbModel: DBModel) -> IDLoader[DBModel]:
                 return result
 
         async def insert(self, entity, extraAttributes={}):
-            newdbrow = dbModel()
-            #print("insert", newdbrow, newdbrow.id, newdbrow.name, flush=True)
-            newdbrow = update(newdbrow, entity, extraAttributes)
+            if isinstance(entity, dbModel):
+                newdbrow = update(entity, None, extraAttributes)
+            else:
+                newdbrow = dbModel()
+                #print("insert", newdbrow, newdbrow.id, newdbrow.name, flush=True)
+                newdbrow = update(newdbrow, entity, extraAttributes)
             async with asyncSessionMaker() as session:
                 #print("insert", newdbrow, newdbrow.id, newdbrow.name, flush=True)
                 session.add(newdbrow)
