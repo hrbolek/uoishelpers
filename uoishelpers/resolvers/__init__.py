@@ -27,7 +27,7 @@ import logging
 import sys
 
 from .IDType import IDType
-from .Insert import Insert, InsertError, InputModelMixin
+from .Insert import Insert, InsertError, InputModelMixin, TreeInputStructureMixin
 from .Update import Update, UpdateError
 from .Delete import Delete, DeleteError
 from .fromContext import getLoadersFromInfo, getUserFromInfo, getUgClientFromInfo
