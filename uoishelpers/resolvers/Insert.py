@@ -37,6 +37,8 @@ class Insert:
 
     @classmethod
     async def DoItSafeWay(cls, info, entity):
+        entity_ = entity.intoModel(info) if isinstance(entity, InputModelMixin) else entity
+        # entity_ = entity.intoModel(info) if hasattr(entity, "intoModel") else entity
         type_arg = cls.type_arg
         try:
             loader = type_arg.getLoader(info=info)
@@ -44,22 +46,69 @@ class Insert:
             # print(f"actinguser {actinguser}")
             id = IDType(actinguser["id"])
             # print(f"id {id}")
-            rbacobject = getattr(entity, "rbacobject_id", sentinel)
+            rbacobject = getattr(entity_, "rbacobject_id", sentinel)
             if rbacobject != sentinel:
                 if rbacobject is None:
-                    entity.rbacobject_id = id
+                    entity_.rbacobject_id = id
 
-            idvalue = getattr(entity, "id", sentinel)
+            idvalue = getattr(entity_, "id", sentinel)
             if idvalue is None:
-                entity.id = uuid.uuid4()
+                entity_.id = uuid.uuid4()
 
-            entity.createdby_id = id
+            entity_.createdby_id = id
             # print(f"entity {entity}")
-            row = await loader.insert(entity)
+            row = await loader.insert(entity_)
             if row is None:
-                return InsertError[type_arg](msg="insert failed", _input=entity)
+                return InsertError[type_arg](msg="insert failed", _input=entity_)
             else:
                 return await type_arg.resolve_reference(info=info, id=row.id)
         except Exception as e:
-            return InsertError[type_arg](msg=f"{e}", _input=entity)        
+            return InsertError[type_arg](msg=f"{e}", _input=entity_)        
         
+
+def _convert(info, value):
+    if hasattr(value, "intoModel"):
+        return value.intoModel(info)
+    if isinstance(value, list):
+        return [_convert(info, v) for v in value]
+    return value
+
+def intoModel(self, info: strawberry.types.Info):
+    loader = self.getLoader(info=info)
+    model = loader.getModel()
+    instance = model()
+    for key in self.__annotations__.keys():
+        original = getattr(self, key)
+        setattr(instance, key, _convert(info, original))
+    return instance
+
+
+class InputModelMixin:
+    """
+    Mixin providing generic intoModel logic for all Strawberry input models.
+    Subclasses must implement getLoader().
+    """
+    @classmethod
+    def getLoader(cls, info: strawberry.types.Info):
+        raise NotImplementedError(
+            f"Class {cls.__name__} must implement getLoader()."
+        )
+
+    def intoModel(self, info: strawberry.types.Info):
+        loader = self.getLoader(info)
+        model_cls = loader.getModel()
+        instance = model_cls()
+
+        # … parsování ostatních polí …
+        if self.id in (None, strawberry.UNSET):
+            instance.id = uuid.uuid4()
+        else:
+            instance.id = self.id
+
+        for key in self.__annotations__.keys():
+            original = getattr(self, key)
+            # Skip None values if desired
+            if original is None:
+                continue
+            setattr(instance, key, _convert(info, original))
+        return instance
