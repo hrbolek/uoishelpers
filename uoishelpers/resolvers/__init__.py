@@ -59,6 +59,102 @@ def get_field_or_default(source_cls, name, default_field):
         return val
     return default_field
 
+def remap_examples(examples: list[dict], field: str) -> list[dict]:
+    """
+    Pro každý původní příklad {orig_field: {...}}
+    vrátí nový příklad {field: {...}}
+    """
+    new = []
+    for ex in examples:
+        # vytáhnu hodnotu jediného klíče
+        value = next(iter(ex.values()))
+        new.append({field: value})
+    return new
+
+def remap_examples2(cls, for_field: str) -> list[dict]:
+    """
+    Pro každý původní příklad {orig_field: {...}}
+    vrátí nový příklad {field: {...}}
+    """
+
+    dc_fields = getattr(cls, "__dataclass_fields__", {})
+    
+    if "examples" in dc_fields:
+        meta = dc_fields["examples"]
+        # zavoláme default_factory, pokud existuje, jinak default
+        if meta.default_factory is not dataclasses.MISSING:
+            raw = meta.default_factory()
+        else:
+            raw = meta.default if meta.default is not dataclasses.MISSING else []
+    else:
+        raw = []    
+
+    # privates = getattr(cls, "_type_definition", None)
+    # if privates is None:
+    #     return []
+    # pf = next(
+    #     f for f in privates.private_fields
+    #         if f.python_name == "examples"
+        
+    # )
+    # if pf is None:
+    #     return None
+    return remap_examples(raw, for_field)
+
+def build_description_from_input(baseType: type) -> str:
+    from strawberry.types.lazy_type import LazyType
+
+    if typing.get_origin(baseType) is typing.Annotated:
+        # první argument je typ nebo ForwardRef
+        inner, *metadata = typing.get_args(baseType)
+        # metadata může obsahovat LazyType
+        for meta in metadata:
+            if isinstance(meta, LazyType):
+                return build_description_from_input(meta.resolve_type())
+        # pokud žádný LazyType, prostě pokračujeme na ten inner
+        return build_description_from_input(inner)
+        
+    # --- 1) Rozbalení strawberry.lazy.LazyType ---
+    if isinstance(baseType, LazyType):
+        # resolve_type() vrací skutečný typ
+        real_type = baseType.resolve_type()
+        return build_description_from_input(real_type)
+    
+    # 1) Ošetření ForwardRef
+    if isinstance(baseType, typing.ForwardRef):
+        # a) vratíme jen jméno, placeholder
+        type_name = baseType.__forward_arg__
+        return f"Filter for `{type_name}` (forward reference)."
+        #
+        # -- nebo b) pokud znáte slovníky jmen, můžete zkusit vyhodnotit:
+        # resolved = eval(type_name, globalns or globals(), localns or locals())
+        # return build_description_from_input(resolved, globalns, localns)
+        # 
+
+    # Přistoupíme k metadatech Strawberry
+    type_def = baseType._type_definition
+    
+    # Pro každý field vytáhneme jméno a existující popisek
+    lines = []
+    for f in type_def.fields:
+        # f.python_name je název v kódu, f.name je název v SDL (pokud se liší)
+        name: str = f.python_name
+        if name.startswith("_"):
+            continue
+        desc = f.description or ""
+        # lines.append(f"- **{name}**: {desc}")
+        lines.append(f"**{name}**: filter for field {name}")
+
+    # Sestavíme finální dlouhý popisek
+    full_desc = (
+        # "BLA BLA"+
+        # f"{type_def.description or ''}\n\n"
+        # "Fields:\n" +
+        ", ".join(lines)
+    )
+    print(f"reading description for {type_def}:\n{full_desc}")
+    return full_desc
+
 def createInputs(arg=None, *, v2: bool = False):
     """
     Decoder decorator: @createInputs  nebo  @createInputs(v2=True)
@@ -87,7 +183,7 @@ def createInputs(arg=None, *, v2: bool = False):
 def createInputs2(cls):
     """
     Dekorátor nad @dataclass, který pro každý field v cls.__annotations__
-    vygeneruje odpovídající filter‑input typ a pak 'where', 'and' a 'or' typy.
+    vygeneruje odpovídající filter-input typ a pak 'where', 'and' a 'or' typy.
     Pokud už máš u původní dataclassi k field strawberry.field(...),
     zachová ho a nepřepíše.
     """
@@ -118,7 +214,15 @@ def createInputs2(cls):
             NewInput = type(f"{clsname}_{field}", (existing,), {})
             NewInput.__annotations__ = { field: typing.Optional[baseType] }
             setattr(NewInput, field, original)
-            gqlInput = strawberry.input(NewInput)
+            # description = existing._type_definition.description
+            examples = getattr(existing, "examples", [])
+            new_examples = remap_examples(examples, field)
+            print(f"examples {field}@{clsname} = {new_examples}")
+            description = '\n# '.join(f"{example}" for example in new_examples)
+            setattr(NewInput, "examples", new_examples)
+            gqlInput = strawberry.input(NewInput, description=f"Filter on `{clsname}.{field}`.\n"
+                "Only one constraint allowed.\n\n"
+                "Examples:\n" +description)
             customInputs.append(gqlInput)
             continue
 
@@ -127,6 +231,7 @@ def createInputs2(cls):
         NewInput = type(inputName, (), {})
         NewInput.__annotations__ = { field: typing.Optional[baseType] }
 
+        description = build_description_from_input(baseType=baseType)
         # Zjistíme, jestli původní dataclass měl strawberry.field
         original = getattr(cls, field, None)
         if isinstance(original, dataclasses.Field):
@@ -137,15 +242,17 @@ def createInputs2(cls):
             setattr(
                 NewInput, field,
                 strawberry.field(
-                    description="operation for select.filter() method",
+                    # description=f'filter for field "{field}"\n# {description}',
+                    description=f'- {field}: Compound filter ({description})',
                     default=None
                 )
             )
 
         # Oblečeme to do strawberry.input
+        print(f"{inputName} desc = {description}")
         gqlInput = strawberry.input(
             NewInput,
-            description=f"Expression on attribute '{field}'. Only one constraint allowed."
+            description=f"Nested filter on attribute '{field}'. Only one constraint allowed. ({description})"
         )
         # Uložíme si do mapperu a přidáme do seznamu
         inputTypeGQLMapper[baseType] = gqlInput
@@ -162,18 +269,87 @@ def createInputs2(cls):
         Op = type(typeName, (), {})
         annotations = { **extra, **inputTypesDict }
         Op.__annotations__ = annotations
+        
+        field_descriptions = {}
+        for op_field, annotation in annotations.items():
 
-        for op_field in annotations:
+            if op_field == "_and":
+                desc = (
+                    "Logical AND of multiple filters. "
+                    "All child filters must match."
+                )
+            elif op_field == "_or":
+                desc = (
+                    "Logical OR of multiple filters. "
+                    "At least one child filter must match."
+                )
+            else:
+                
+                # Zjistíme původní Input typ pro toto pole
+                # print(f"annotation {annotation.__args__[0]}", flush=True)
+                # print(f"annotation {annotation}", flush=True)
+                new_examples = []
+                
+                base_input = inputTypeGQLMapper.get(annotation.__args__[0])
+                # print(f"base_input {base_input}", flush=True)
+                if base_input is not None:
+                    
+                    # A z něj vybereme seznam operátorů
+                    ops = [f.name for f in base_input._type_definition.fields]
+                    # A složíme stručný popisek
+                    desc = (
+                        f"Filter on `{op_field}`. "
+                        "Only one of " + ", ".join(f"`{o}`" for o in ops) + " allowed."
+                    )
+                    # desc = base_input._type_definition.description
+                    # desc = base_input._type_definition.description
+                    # print(f"desc {desc}", flush=True)
+
+            examples = getattr(annotation.__args__[0], "examples", [])
+            examples = remap_examples2(annotation.__args__[0], op_field)
+            
+            print(f"annotation {annotation.__args__[0]}", flush=True)
+            if typedef:=getattr(annotation.__args__[0], "_type_definition", None):
+                desc = typedef.description
+                lines = desc.split("\n")
+                desc = (
+                    f'{lines[0]}\n for field {op_field} the filters can be\n'+
+                    "\n".join([f"{example}" for example in examples])
+                )
+            
+    
+            # if examples:
+            #     new_examples = remap_examples(examples, op_field)                    
+            #     print(f"new_examples {new_examples} on {op_field}@{annotation}", flush=True)
+            # else: 
+            #     print(f"no examples on {op_field}@{annotation.__args__[0]}", flush=True)
+
+            print(f"examples on {op_field}@{annotation}: {examples}", flush=True)
+            field_descriptions[op_field] = desc
+
             default_field = get_field_or_default(
                 cls, op_field,
-                strawberry.field(name=op_field, description="Filter method", default=None)
+                strawberry.field(name=op_field, description=desc, default=None)
             )
             setattr(Op, op_field, default_field)
+
+        # Sestavíme společný description pro celý typ
+        all_fields_md = "\n".join(
+            f"- **{name}**: {desc}"
+            for name, desc in field_descriptions.items()
+        )
+        full_description = (
+            f"`{typeName}` operator for `{clsname}`.\n\n"
+            "Fields:\n" +
+            all_fields_md +
+            "\n\n"
+            "You can nest via `_and` and `_or`. `_and` can nest only `_or`, while `_or` can nest only `_and`"
+        )
 
         return strawberry.input(
             Op,
             name=typeName,
-            description=f"{typeName} operator for {clsname}"
+            description=full_description
         )
 
     orOp = buildOpType(orName, {"_and": typing.Optional[typing.List[andName]]})
@@ -319,35 +495,95 @@ def createInputs_old(cls):
     return whereOp
     #return inputTypes
 
-@strawberry.input(description="Str filter methods, only one constrain allowed")
+@strawberry.input(description='''Str filter methods, 
+for field "name" the filters can be 
+{"name": {"_eq": "Peter"}}
+{"name": {"_ge": "A"}}
+{"name": {"_gt": "E"}}
+{"name": {"_le": "Z"}}
+{"name": {"_lt": "F"}}
+{"name": {"_ilike": "%ete%"}}
+{"name": {"_like": "Pet%"}}
+{"name": {"_startswith": "Pet"}}
+{"name": {"_endswith": "ter"}}
+''')
 class StrFilter:
-    _eq: typing.Optional[str] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
-    _le: typing.Optional[str] = strawberry.field(name="_le", description="operation for select.filter() method", default=None)
-    _lt: typing.Optional[str] = strawberry.field(name="_lt", description="operation for select.filter() method", default=None)
-    _ge: typing.Optional[str] = strawberry.field(name="_ge", description="operation for select.filter() method", default=None)
-    _gt: typing.Optional[str] = strawberry.field(name="_gt", description="operation for select.filter() method", default=None)
-    _like: typing.Optional[str] = strawberry.field(name="_like", description="operation for select.filter() method", default=None)
-    _ilike: typing.Optional[str] = strawberry.field(name="_ilike", description="operation for select.filter() method", default=None)
-    _startswith: typing.Optional[str] = strawberry.field(name="_startswith", description="operation for select.filter() method", default=None)
-    _endswith: typing.Optional[str] = strawberry.field(name="_endswith", description="operation for select.filter() method", default=None)
+    _eq: typing.Optional[str] = strawberry.field(name="_eq", description='filter aka {"name": {"_eq": "Peter"}}', default=None)
+    _le: typing.Optional[str] = strawberry.field(name="_le", description='filter aka {"name": {"_ge": "A"}}', default=None)
+    _lt: typing.Optional[str] = strawberry.field(name="_lt", description='filter aka {"name": {"_lt": "F"}}', default=None)
+    _ge: typing.Optional[str] = strawberry.field(name="_ge", description='filter aka {"name": {"_ge": "A"}}', default=None)
+    _gt: typing.Optional[str] = strawberry.field(name="_gt", description='filter aka {"name": {"_gt": "E"}}', default=None)
+    _like: typing.Optional[str] = strawberry.field(name="_like", description='filter aka {"name": {"_like": "Pet%"}}', default=None)
+    _ilike: typing.Optional[str] = strawberry.field(name="_ilike", description='filter aka {"name": {"_like": "Pet%"}}', default=None)
+    _startswith: typing.Optional[str] = strawberry.field(name="_startswith", description='filter aka {"name": {"_startswith": "Pet"}}', default=None)
+    _endswith: typing.Optional[str] = strawberry.field(name="_endswith", description='filter aka {"name": {"_endswith": "ter"}}', default=None)
+    examples: strawberry.Private[typing.List[dict]] = dataclasses.field(
+        default_factory=lambda: [
+        {"name": {"_eq": "Peter"}},
+        {"name": {"_ge": "A"}},
+        {"name": {"_gt": "E"}},
+        {"name": {"_le": "Z"}},
+        {"name": {"_lt": "F"}},
+        {"name": {"_ilike": "%ete%"}},
+        {"name": {"_like": "Pet%"}},
+        {"name": {"_startswith": "Pet"}},
+        {"name": {"_endswith": "ter"}}
+    ])
 
-@strawberry.input(description="Datetime filter methods, only one constrain allowed")
+@strawberry.input(description='''Datetime filter methods, 
+for field "lastchange" the filters can be 
+{"lastchange": {"_eq": "2025-06-30T18:01:59"}}
+{"lastchange": {"_ge": "2025-06-30T18:01:59"}}
+{"lastchange": {"_gt": "2025-06-30T18:01:59"}}
+{"lastchange": {"_le": "2025-06-30T18:01:59"}}
+{"lastchange": {"_lt": "2025-06-30T18:01:59"}}
+''')
 class DatetimeFilter:
     _eq: typing.Optional[datetime.datetime] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
     _le: typing.Optional[datetime.datetime] = strawberry.field(name="_le", description="operation for select.filter() method", default=None)
     _lt: typing.Optional[datetime.datetime] = strawberry.field(name="_lt", description="operation for select.filter() method", default=None)
     _ge: typing.Optional[datetime.datetime] = strawberry.field(name="_ge", description="operation for select.filter() method", default=None)
     _gt: typing.Optional[datetime.datetime] = strawberry.field(name="_gt", description="operation for select.filter() method", default=None)
+    examples: strawberry.Private[typing.List[dict]] = dataclasses.field(
+        default_factory=lambda: [
+        {"lastchange": {"_eq": "2025-06-30T18:01:59"}},
+        {"lastchange": {"_ge": "2025-06-30T18:01:59"}},
+        {"lastchange": {"_gt": "2025-06-30T18:01:59"}},
+        {"lastchange": {"_le": "2025-06-30T18:01:59"}},
+        {"lastchange": {"_lt": "2025-06-30T18:01:59"}}
+    ])
 
-@strawberry.input(description="Timeduration filter methods, only one constrain allowed")
+@strawberry.input(description='''Timeduration filter methods, 
+for field "duration" the filters can be 
+{"duration": {"_eq": 1}}
+{"duration": {"_ge": 1}}
+{"duration": {"_gt": 1}}
+{"duration": {"_le": 1}}
+{"duration": {"_lt": 1}}
+''')
 class TimeDurationFilter:
     _eq: typing.Optional[datetime.timedelta] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
     _le: typing.Optional[datetime.timedelta] = strawberry.field(name="_le", description="operation for select.filter() method", default=None)
     _lt: typing.Optional[datetime.timedelta] = strawberry.field(name="_lt", description="operation for select.filter() method", default=None)
     _ge: typing.Optional[datetime.timedelta] = strawberry.field(name="_ge", description="operation for select.filter() method", default=None)
     _gt: typing.Optional[datetime.timedelta] = strawberry.field(name="_gt", description="operation for select.filter() method", default=None)
+    examples: strawberry.Private[typing.List[dict]] = dataclasses.field(
+        default_factory=lambda: [
+        {"duration": {"_eq": 1}},
+        {"duration": {"_ge": 1}},
+        {"duration": {"_gt": 1}},
+        {"duration": {"_le": 1}},
+        {"duration": {"_lt": 1}}
+    ])
 
-@strawberry.input(description="Integer filter methods, only one constrain allowed")
+@strawberry.input(description='''Integer filter methods, 
+for field "age" the filters can be 
+{"age": {"_eq": 1}}
+{"age": {"_ge": 1}}
+{"age": {"_gt": 1}}
+{"age": {"_le": 1}}
+{"age": {"_lt": 1}}
+''')
 class IntFilter:
     _eq: typing.Optional[int] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
     _le: typing.Optional[int] = strawberry.field(name="_le", description="operation for select.filter() method", default=None)
@@ -355,17 +591,41 @@ class IntFilter:
     _ge: typing.Optional[int] = strawberry.field(name="_ge", description="operation for select.filter() method", default=None)
     _gt: typing.Optional[int] = strawberry.field(name="_gt", description="operation for select.filter() method", default=None)
     _in: typing.Optional[typing.List[int]] = strawberry.field(name="_in", description="operation for select.filter() method", default=None)
+    examples: strawberry.Private[typing.List[dict]] = dataclasses.field(
+        default_factory=lambda: [
+        {"age": {"_eq": 1}},
+        {"age": {"_ge": 1}},
+        {"age": {"_gt": 1}},
+        {"age": {"_le": 1}},
+        {"age": {"_lt": 1}}
+    ])
 
-@strawberry.input(description="Integer filter methods, only one constrain allowed")
+@strawberry.input(description='''Boolean filter methods, 
+for field "valid" the filters can be 
+{"valid": {"_eq": true}}
+''')
 class BoolFilter:
     _eq: typing.Optional[bool] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
+    examples: strawberry.Private[typing.List[dict]] = dataclasses.field(
+        default_factory=lambda: [
+        {"valid": {"_eq": True}}
+    ])
 
 import uuid
 uuid.UUID
-@strawberry.input(description="Integer filter methods, only one constrain allowed")
+@strawberry.input(description='''UUID filter methods, 
+for field "id" the filters can be 
+{"id": {"_eq": "5fa97795-454e-4631-870e-3f0806018755"}}
+{"id": {"_in": ["5fa97795-454e-4631-870e-3f0806018755", "011ec2bc-a0b9-44f3-bcd8-a42691eebaa4"]}}
+''')
 class UuidFilter:
     _eq: typing.Optional[uuid.UUID] = strawberry.field(name="_eq", description="operation for select.filter() method", default=None)
     _in: typing.Optional[typing.List[uuid.UUID]] = strawberry.field(name="_in", description="operation for select.filter() method", default=None)
+    examples: strawberry.Private[typing.List[dict]] = dataclasses.field(
+        default_factory=lambda: [
+        {"id": {"_eq": "5fa97795-454e-4631-870e-3f0806018755"}},
+        {"id": {"_in": ["5fa97795-454e-4631-870e-3f0806018755", "011ec2bc-a0b9-44f3-bcd8-a42691eebaa4"]}}
+    ])
 
 inputTypeGQLMapper[uuid.UUID] = UuidFilter
 inputTypeGQLMapper[int] = IntFilter
