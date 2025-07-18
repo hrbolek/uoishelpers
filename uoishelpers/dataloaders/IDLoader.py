@@ -55,12 +55,14 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
         print(f"IDLoader initialized for model: {self.dbModel.__name__}")
 
     async def batch_load_fn(self, keys):
-        print(f"Using IDLoader on model: {self.dbModel.__name__} with keys: {keys}")
+        # print(f"Using IDLoader on model: {self.dbModel.__name__} with keys: {keys}", flush=True)
         stmt = select(self.dbModel).where(self.dbModel.id.in_(keys))
         res = await self.session.execute(stmt)
         scalars = res.scalars()
         data = {row.id: row for row in scalars}
-        return [data.get(i) for i in keys]
+        result = [data.get(i) for i in keys]
+        # print(f"Using IDLoader on model: {self.dbModel.__name__} \n\twith keys: {keys} \n\tgot result: {result}", flush=True)
+        return result
     
     async def insert(self, entity, extraAttributes={}):
         newdbrow = self.dbModel()
@@ -146,6 +148,14 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
 
         return await self.execute_select(statement)
 
+    def getModel(self):
+        """Vrací model, pro který je tento IDLoader určen."""
+        return self.dbModel
+    
+    def getSelectStatement(self):
+        """Vrací SQLAlchemy select statement pro tento model."""
+        return select(self.dbModel)
+    
 class FKeyLoader(DataLoader, Generic[T]):
     dbModel: Type[T] = None
     fkey: str = None
