@@ -41,6 +41,6 @@ class LoaderMapBase(typing.Generic[T]):
         result = self._all.get(model)
         if result is None:
             print(f"Creating new IDLoader for model: {model}")
-            result = IDLoader(self.session, model)
+            result = IDLoader[model](self.session)
             self._all[model] = result
         return result  

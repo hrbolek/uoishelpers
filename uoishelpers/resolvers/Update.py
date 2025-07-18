@@ -13,6 +13,7 @@ class UpdateError(typing.Generic[UpdateType]):
     _entity: typing.Optional[UpdateType] = strawberry.field(default=None, description="Entity to be updated")
     msg: str = strawberry.field(default=None, description="reason of fail")
     failed: bool = strawberry.field(default=True, description="always True, available when error")
+    code: typing.Optional[IDType] = strawberry.field(default=None, description="error code, if available")
     _input: strawberry.Private[object]
 
     @strawberry.field(description="original data")

@@ -168,7 +168,7 @@ class FKeyLoader(DataLoader, Generic[T]):
         self.foreignKeyNameAttribute = getattr(self.dbModel, foreignKeyName)
         if not self.dbModel:
             raise ValueError("Model must be specified using FKeyLoader[Model]")
-        print(f"FKeyLoader initialized for model: {self.dbModel.__name__} with foreign key {fkey}")
+        print(f"FKeyLoader initialized for model: {self.dbModel.__name__} with foreign key {foreignKeyName}")
 
     async def batch_load_fn(self, keys):
         _keys = [*keys]
