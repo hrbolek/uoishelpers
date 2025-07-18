@@ -110,7 +110,7 @@ async def test_loader_load_single():
 
     await putPredefinedStructuresIntoTable(async_session_maker, UserModel, lambda:data)
 
-    from uoishelpers.dataloders import createIdLoader
+    from uoishelpers.dataloaders import createIdLoader
 
     userLoader = createIdLoader(async_session_maker, UserModel)
     u = await userLoader.load(key='1')
@@ -132,7 +132,7 @@ async def test_loader_load_multi():
 
     await putPredefinedStructuresIntoTable(async_session_maker, UserModel, lambda:data)
 
-    from uoishelpers.dataloders import createIdLoader
+    from uoishelpers.dataloaders import createIdLoader
 
     userLoader = createIdLoader(async_session_maker, UserModel)
 
@@ -161,7 +161,7 @@ async def test_loader_load_multi_same():
 
     await putPredefinedStructuresIntoTable(async_session_maker, UserModel, lambda:data)
 
-    from uoishelpers.dataloders import createIdLoader
+    from uoishelpers.dataloaders import createIdLoader
 
     userLoader = createIdLoader(async_session_maker, UserModel)
 
@@ -196,7 +196,7 @@ async def test_loader_execute_select():
 
     await putPredefinedStructuresIntoTable(async_session_maker, UserModel, lambda:data)
 
-    from uoishelpers.dataloders import createIdLoader
+    from uoishelpers.dataloaders import createIdLoader
 
     userLoader = createIdLoader(async_session_maker, UserModel)
 
@@ -234,7 +234,7 @@ async def test_loader_update():
 
     await putPredefinedStructuresIntoTable(async_session_maker, UserModel, lambda:data)
 
-    from uoishelpers.dataloders import createIdLoader
+    from uoishelpers.dataloaders import createIdLoader
 
     userLoader = createIdLoader(async_session_maker, UserModel)
 
@@ -277,7 +277,7 @@ async def test_loader_update_with_lastchange():
 
     await putPredefinedStructuresIntoTable(async_session_maker, UserModel, lambda:data)
 
-    from uoishelpers.dataloders import createIdLoader
+    from uoishelpers.dataloaders import createIdLoader
 
     userLoader = createIdLoader(async_session_maker, UserModel)
 
@@ -309,7 +309,7 @@ async def test_loader_insert():
 
     await putPredefinedStructuresIntoTable(async_session_maker, UserModel, lambda:data)
 
-    from uoishelpers.dataloders import createIdLoader
+    from uoishelpers.dataloaders import createIdLoader
 
     userLoader = createIdLoader(async_session_maker, UserModel)
 
@@ -350,7 +350,7 @@ async def test_loader_insert_extraattrs():
 
     await putPredefinedStructuresIntoTable(async_session_maker, UserModel, lambda:data)
 
-    from uoishelpers.dataloders import createIdLoader
+    from uoishelpers.dataloaders import createIdLoader
 
     userLoader = createIdLoader(async_session_maker, UserModel)
 
@@ -393,7 +393,7 @@ async def test_loader_external_cache():
 
     await putPredefinedStructuresIntoTable(async_session_maker, UserModel, lambda:data)
 
-    from uoishelpers.dataloders import createIdLoader
+    from uoishelpers.dataloaders import createIdLoader
 
     externalcache = {}
     userLoader = createIdLoader(async_session_maker, UserModel)
@@ -433,7 +433,7 @@ async def test_loader_page():
 
     await putPredefinedStructuresIntoTable(async_session_maker, UserModel, lambda:data)
 
-    from uoishelpers.dataloders import createIdLoader
+    from uoishelpers.dataloaders import createIdLoader
 
     
     userLoader = createIdLoader(async_session_maker, UserModel)
