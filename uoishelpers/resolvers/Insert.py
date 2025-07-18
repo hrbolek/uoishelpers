@@ -12,10 +12,20 @@ InputType = typing.TypeVar("GQLInputType")
 
 @strawberry.type(description="Error object returned as an result of Insert operation")
 class InsertError(typing.Generic[InputType]):
+    type_arg: strawberry.Private[object] = None  # Placeholder for the generic type argument
+
     msg: str = strawberry.field(default=None, description="reason of fail")
     _input: strawberry.Private[object]
     failed: bool = strawberry.field(default=True, description="always True, available when error")
+    code: typing.Optional[IDType] = strawberry.field(default=None, description="error code, if available")
 
+    @classmethod
+    @cache
+    def __class_getitem__(cls, item):
+        # When MyGenericClass[int] is accessed, create a new class with type_arg set
+        new_cls = type(f"{cls.__name__}[{item if isinstance(item, str) else item.__name__}]", (cls,), {"type_arg": item})
+        return new_cls
+    
     @strawberry.field(description="original data")
     def input(self) -> typing.Optional[strawberry.scalars.JSON]:
         if self._input is None:

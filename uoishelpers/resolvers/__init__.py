@@ -300,7 +300,7 @@ def createInputs2(cls):
             # elif op_field == whereName:
             #     pass
             else:
-                desc: str = annotation._type_definition.description
+                desc: str = annotation.__strawberry_definition__.description
                 # print(f"annotation {annotation}", flush=True)
 
             # new_examples = []
@@ -321,7 +321,7 @@ def createInputs2(cls):
             
             examples_description = ""
             example_count = 0
-            for filter_field in field_type._type_definition.fields:
+            for filter_field in field_type.__strawberry_definition__.fields:
                 example = filter_field.metadata.get("example", None)     
                 if example is None:
                     continue   
