@@ -2,6 +2,8 @@ import uuid
 import typing
 import datetime
 import strawberry
+import dataclasses
+import json
 
 from functools import cache
 from .fromContext import getUserFromInfo
@@ -30,7 +32,12 @@ class InsertError(typing.Generic[InputType]):
     def input(self) -> typing.Optional[strawberry.scalars.JSON]:
         if self._input is None:
             return None
-        d = {key: f"{value}" if isinstance(value, (datetime.datetime, IDType)) else value for key, value in strawberry.asdict(self._input).items() if value is not None}
+        if dataclasses.is_dataclass(self._input):
+            d = dataclasses.asdict(self._input)
+            d_str = json.dumps(d, default=str)
+            d = json.loads(d_str)
+        else:
+            d = {key: f"{value}" if isinstance(value, (datetime.datetime, IDType)) else value for key, value in strawberry.asdict(self._input).items() if value is not None}
         return d
 
 sentinel = "ea3afa47-3fc4-4d50-8b76-65e3d54cce01"

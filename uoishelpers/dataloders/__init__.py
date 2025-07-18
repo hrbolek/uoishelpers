@@ -8,7 +8,6 @@ import sqlalchemy
 from aiodataloader import DataLoader
 from uoishelpers.resolvers import select, update, delete
 
-
 def prepareSelect(model, where: dict, extendedfilter=None):   
     usedTables = [model.__tablename__]
     from sqlalchemy import select, and_, or_
