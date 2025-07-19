@@ -16,6 +16,7 @@ class UpdateError(typing.Generic[UpdateType]):
     msg: str = strawberry.field(default=None, description="reason of fail")
     failed: bool = strawberry.field(default=True, description="always True, available when error")
     code: typing.Optional[IDType] = strawberry.field(default=None, description="error code, if available")
+    location: typing.Optional[str] = strawberry.field(default=None, description="location of the error - resolver name")
     _input: strawberry.Private[object]
 
     @strawberry.field(description="original data")

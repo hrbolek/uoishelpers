@@ -20,6 +20,7 @@ class InsertError(typing.Generic[InputType]):
     _input: strawberry.Private[object]
     failed: bool = strawberry.field(default=True, description="always True, available when error")
     code: typing.Optional[IDType] = strawberry.field(default=None, description="error code, if available")
+    location: typing.Optional[str] = strawberry.field(default=None, description="location of the error - resolver name")
 
     @classmethod
     @cache

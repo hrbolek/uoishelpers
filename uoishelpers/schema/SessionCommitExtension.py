@@ -10,20 +10,21 @@ class SessionCommitExtension(SchemaExtension):
     async def on_operation(self):
         
         asyncSessionMaker = await self._session_maker_factory()
-        loaders_context = self.loaders_factory(asyncSessionMaker)
+        
 
         async with asyncSessionMaker() as session:
             try:
             # před spuštěním operace
-                self.execution_context.context["session"] = asyncSessionMaker()
-                self.execution_context.context["error"] = False
+                self.execution_context.context["session"] = session
+                self.execution_context.context["errors"] = []
+                loaders_context = self.loaders_factory(session)
                 self.execution_context.context.update(loaders_context)
                 print("Starting session", flush=True)
                 yield  
                 # print(f'Closing operation {self.execution_context.context}')
                 # po dokončení operace:
 
-                if self.execution_context.context["error"]:
+                if self.execution_context.context["errors"]:
                     await session.rollback()
                     print("Rollback session due to error flag", flush=True)
                 else:
@@ -31,7 +32,12 @@ class SessionCommitExtension(SchemaExtension):
                     print("Commit session", flush=True)
             except Exception as e:
                 print(f"Exception during operation {e}, doing rollback", flush=True)
-                self.execution_context.context["error"] = True
+                error_description = {
+                    "msg": f"Unexpected error during operation: {e}",
+                    "code": "43b027da-d073-4fac-8881-3353609f2bcd",
+                    "_input": {}
+                }
+                self.execution_context.context["errors"].append(error_description)
                 await session.rollback()
                 raise e
             

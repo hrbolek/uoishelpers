@@ -13,6 +13,7 @@ class DeleteError(typing.Generic[DeleteType]):
     _entity: typing.Optional[DeleteType] = strawberry.field(default=None, description="Entity to be updated")
     msg: str = strawberry.field(default=None, description="reason of fail")
     failed: bool = strawberry.field(default=True, description="always True, available when error")
+    location: typing.Optional[str] = strawberry.field(default=None, description="location of the error - resolver name")
     _input: strawberry.Private[object]
 
     @strawberry.field(description="original data")

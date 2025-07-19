@@ -8,7 +8,7 @@ import strawberry.types
 from strawberry.types.base import StrawberryList
 from functools import cached_property
 
-from .resolvers import IDType, getLoadersFromInfo, getUserFromInfo
+from ..resolvers import IDType, getLoadersFromInfo, getUserFromInfo
 
 class OnlyForAuthentized(strawberry.permission.BasePermission):
     message = "User is not authenticated"
@@ -547,7 +547,7 @@ def SimpleReadPermission():
     return ResultFunc
 SimpleReadPermission = SimpleReadPermission()
 
-from .resolvers import InsertError, UpdateError, DeleteError
+from ..resolvers import InsertError, UpdateError, DeleteError
 class SimpleUpdatePermission(strawberry.permission.BasePermission):
     type_arg = None  # Placeholder for the generic type argument
     roles = []
