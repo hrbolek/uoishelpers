@@ -3,8 +3,7 @@ import strawberry
 from strawberry.federation.schema_directive import schema_directive, Location
 from strawberry.directive import DirectiveLocation
 from strawberry.extensions import FieldExtension
-from uoishelpers.dataloaders import getLoadersFromInfo, getUserFromInfo
-from uoishelpers.resolvers import InsertError, UpdateError
+from uoishelpers.resolvers import UpdateError, getUserFromInfo
 
 @schema_directive(
     repeatable=True,
