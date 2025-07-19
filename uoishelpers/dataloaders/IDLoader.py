@@ -52,14 +52,24 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
         self.session = session
         if not self.dbModel:
             raise ValueError("Model must be specified using IDLoader[Model]")
-        print(f"IDLoader initialized for model: {self.dbModel.__name__}")
+        # print(f"IDLoader initialized for model: {self.dbModel.__name__}")
 
     async def batch_load_fn(self, keys):
         # print(f"Using IDLoader on model: {self.dbModel.__name__} with keys: {keys}", flush=True)
-        stmt = select(self.dbModel).where(self.dbModel.id.in_(keys))
+        entities_in_session = {}
+        for key in keys:
+            entity = self.session.identity_map.get((self.dbModel, (key,)), None)
+            if entity is not None:
+                entities_in_session[key] = entity
+        if entities_in_session:
+            print(f"Found {len(entities_in_session)} entities in session for keys: {keys}", flush=True)
+            
+        missing_keys = [key for key in keys if key not in entities_in_session]
+        stmt = select(self.dbModel).where(self.dbModel.id.in_(missing_keys))
         res = await self.session.execute(stmt)
         scalars = res.scalars()
         data = {row.id: row for row in scalars}
+        data.update(entities_in_session)
         result = [data.get(i) for i in keys]
         # print(f"Using IDLoader on model: {self.dbModel.__name__} \n\twith keys: {keys} \n\tgot result: {result}", flush=True)
         return result

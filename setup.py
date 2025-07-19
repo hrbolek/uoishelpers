@@ -1,3 +1,10 @@
 from setuptools import setup
 
-setup()
+setup(
+    entry_points={
+        'console_scripts': [
+            'listtypes = uoishelpers.cmds.listypes:listypes',
+        ],
+    },
+
+)
