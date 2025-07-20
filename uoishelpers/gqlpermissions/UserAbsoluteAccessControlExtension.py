@@ -7,8 +7,8 @@ from .ApplyPermissionCheckRoleDirectiveMixin import PermissionCheckRoleDirective
 from ..resolvers import getUserFromInfo
 
 class UserAbsoluteAccessControlExtension(TwoStageGenericBaseExtension, CallNextMixin):
-    def __init__(self, *, needed_roles: list[str]):
-        self.roles = needed_roles
+    def __init__(self, *, roles: list[str]):
+        self.roles = roles
         super().__init__()
 
     def apply(self, field):

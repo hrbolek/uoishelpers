@@ -6,8 +6,8 @@ from .CallNextMixin import CallNextMixin
 from .ApplyPermissionCheckRoleDirectiveMixin import ApplyPermissionCheckRoleDirectiveMixin
 
 class UserAccessControlExtension(TwoStageGenericBaseExtension, ApplyPermissionCheckRoleDirectiveMixin, CallNextMixin):
-    def __init__(self, *, needed_roles: list[str]):
-        self.roles = needed_roles
+    def __init__(self, *, roles: list[str]):
+        self.roles = roles
         super().__init__()
 
     async def resolve_async(self, next_, source, info: strawberry.types.Info, *args, **kwargs):

@@ -41,6 +41,8 @@ class LoadDataExtension(TwoStageGenericBaseExtension, CallNextMixin):
         loader = getattr(input_params, "getLoader", None)
         if loader is None:
             loader = self.GQLModel.getLoader(info)
+        else:
+            loader = loader(info=info)
         
         if not loader:
             return self.return_error(

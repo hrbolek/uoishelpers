@@ -46,6 +46,6 @@ class RbacProviderExtension(TwoStageGenericBaseExtension, CallNextMixin):
                 input_data=input_params
             )        
         # return await self.call_next_resolve(next_, source, info, rbacobject_id=rbacobject_id, *args, **kwargs)
-        return await next_(source, info, db_row=db_row, rbacobject_id=rbacobject_id, *args, **kwargs)
+        return await next_(source, info, rbacobject_id=rbacobject_id, *args, **kwargs)
 
         
