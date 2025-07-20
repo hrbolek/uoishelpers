@@ -128,7 +128,7 @@ class GraphQLBatchLoader(DataLoader):
 
 
 TestNoStateAccessQuery = """query TestNoStateAccess($id: UUID! $user_id: UUID!, $roles: [String!]!) {
-  rbacById(id: $rbac_id) {
+  rbacById(id: $id) {
     result: userCanWithoutState(userId: $user_id, rolesNeeded: $roles)
   }
 }"""
@@ -138,16 +138,50 @@ TestStateAccessQuery = """query TestStateAccess($id: UUID! $user_id: UUID!, $sta
     result: userCanWithState(userId: $user_id, access: $access, stateId: $state_id)
   }
 }"""
+
+GetUserRolesForRBACQuery = """query GetUserRolesForRBACQuery($id: UUID! $user_id: UUID!) {
+  rbacById(id: $id) {
+    result: roles(userId: $user_id) {
+      roletype {
+        __typename
+        id
+        name
+        path
+        subtypes {
+          __typename
+          id
+          name
+          path
+        }
+      }
+      userId
+      valid
+      startdate
+      enddate
+      group {
+        grouptype {
+          id
+          name
+        }
+        id
+        name
+      }
+    }
+  }
+}"""
+
 class RolePermissionSchemaExtension(SchemaExtension):
 
     async def on_execute(self):
         context = self.execution_context
         gqlClient = context.context.get("ug_client", None)
-        assert gqlClient is not None, "ug_client must be provided in context"
+        # assert gqlClient is not None, "ug_client must be provided in context"
         loader = GraphQLBatchLoader(gqlClient, TestNoStateAccessQuery)
         context.context["userCanWithoutState_loader"] = loader
         loader = GraphQLBatchLoader(gqlClient, TestStateAccessQuery)
         context.context["userCanWithState_loader"] = loader
+        loader = GraphQLBatchLoader(gqlClient, GetUserRolesForRBACQuery)
+        context.context["userRolesForRBACQuery_loader"] = loader
 
         # keyA = {"user_id": "51d101a0-81f1-44ca-8366-6cf51432e8d6", "id": "7533c953-e88b-48a2-a41c-b61631395247", "roles": ("administrátor", )}
         # keyB = {"user_id": "51d101a0-81f1-44ca-8366-6cf51432e8d6", "id": "8191cee1-8dba-4a2a-b9af-3f986eb0b51a", "roles": ("administrátor", )}
