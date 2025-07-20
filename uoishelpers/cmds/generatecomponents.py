@@ -1,0 +1,2 @@
+def generatecomponents():
+    pass

@@ -1606,17 +1606,220 @@ async def test_validate_relation_directives(sdl_doc: DocumentNode) -> None:
             "Relation directive validation errors:\n  " + "\n  ".join(errors)
         )
     
+
+def explain_graphql_query(schema_ast, query):
+    from graphql import (
+        parse,
+        build_ast_schema,
+        print_ast
+    )
+    from graphql.language import DocumentNode, FieldNode
+    from graphql.language.visitor import visit
+    from graphql.utilities import TypeInfo
+    from graphql import parse, build_ast_schema, TypeInfo, visit, GraphQLSchema
+    from graphql.language.visitor import visit
+    from graphql.language.ast import (
+        DocumentNode,
+        FieldNode,
+        SelectionSetNode,
+        OperationDefinitionNode,
+    )
+    from graphql.type.definition import (
+        GraphQLObjectType,
+        GraphQLNonNull,
+        GraphQLList,
+        GraphQLInputObjectType
+    )
+
+
+    schema = build_ast_schema(schema_ast)
+
+    # map description z AST schématu
+    field_meta: dict[tuple[str,str], str|None] = {}
+    for defn in schema_ast.definitions:
+        from graphql.language.ast import ObjectTypeDefinitionNode
+        if isinstance(defn, ObjectTypeDefinitionNode):
+            parent = defn.name.value
+            for fld in defn.fields or []:
+                desc = fld.description.value if fld.description else None
+                field_meta[(parent, fld.name.value)] = desc
+                    
+
+
+    # parse → AST (DocumentNode)
+    query_ast = parse(query)
+
+    # vytisknout strom
+    # print(query_ast)
+    # nebo jako JSON
+    import json
+    def node_to_dict(node):
+        # graphql-core AST nodes mají `.to_dict()` na Python 3.10+:
+        return node.to_dict()
+
+    # print(json.dumps(node_to_dict(query_ast), indent=2))
+
+    # zpět na string
+    # print(print_ast(query_ast))
+
+    def unwrap_type(gtype):
+        """Strip away NonNull and List wrappers to get the base Named type."""
+        while isinstance(gtype, (GraphQLNonNull, GraphQLList)):
+            gtype = gtype.of_type
+        return gtype
+
+    def type_node_to_str(type_node) -> str:
+        """Renders a VariableDefinitionNode.type back to a string."""
+        kind = type_node.kind  # e.g. 'NonNullType', 'ListType', or 'NamedType'
+        if kind in ["NamedType", "named_type"]:
+            return type_node.name.value
+        if kind in ["NonNullType", "non_null_type"]:
+            return f"{type_node_to_str(type_node.type)}!"
+        if kind in ["ListType", "list_type"]:
+            return f"[{type_node_to_str(type_node.type)}]"
+        raise ValueError(f"Unknown kind {kind}")
+    
+    def print_query_with_header_comments(query_ast: DocumentNode, schema: GraphQLSchema) -> str:
+        # 1) Gather input (variable) descriptions
+        var_lines: list[str] = []
+
+        for defn in query_ast.definitions:
+            if isinstance(defn, OperationDefinitionNode) and defn.variable_definitions:
+                # Předpokládáme, že dotaz obsahuje právě jedno root pole, např. userById
+                root_sel = next(
+                    (s for s in defn.selection_set.selections if isinstance(s, FieldNode)),
+                    None
+                )
+                if not root_sel:
+                    continue
+
+                root_field_name = root_sel.name.value
+                # query_type, mutation_type nebo subscription_type dle defn.operation
+                root_type_map = {
+                    "QUERY":       schema.query_type,
+                    "MUTATION":    schema.mutation_type,
+                    "subscription": schema.subscription_type
+                }
+                root_type = root_type_map[defn.operation.name]
+                root_field_def = root_type.fields.get(root_field_name)
+                # var_lines.append(f"# root args {root_field_def.args}")
+                first_arg_name = next(iter(root_field_def.args))  # získá první klíč (jméno argumentu)
+                first_arg = root_field_def.args[first_arg_name]  # celý argument (GraphQLArgument)
+                first_arg_type = unwrap_type(first_arg.type)
+                # var_lines.append(f"# first_arg {first_arg_name}: {first_arg}")
+                for var_def in defn.variable_definitions:  # type: VariableDefinitionNode
+                    name     = var_def.variable.name.value     # např. "id"
+                    type_str = type_node_to_str(var_def.type)  # např. "UUID!"
+                    # najdi popis argumentu
+                    desc = None
+                    if isinstance(first_arg_type, GraphQLInputObjectType):
+                        input_fields = first_arg_type.fields  # Dict[str, GraphQLInputField]
+                        # Teď můžeš procházet input_fields podle jmen
+                        for field_name, input_field in input_fields.items():
+                            if field_name != name:
+                                continue
+                            # print(f"Field: {field_name}, Type: {input_field.type}")
+                            desc = input_field.description or "No description"
+                            break
+                    # if root_field_def and name in root_field_def.args:
+                    #     arg_def = root_field_def.args[name]
+                    #     desc = arg_def.description
+                    # očisti whitespace
+                    if desc:
+                        desc = " ".join(desc.split())
+                        var_lines.append(f"# @param {{{type_str}}} {name} - {desc}")
+                    else:
+                        var_lines.append(f"# @param {{{type_str}}} {name} - missing description")
+
+
+        # 2) Gather output (field) descriptions with full dotted path
+        out_lines: list[str] = []
+        def walk(
+            sel_set: SelectionSetNode,
+            parent_type: GraphQLObjectType,
+            prefix: str
+        ):
+            for sel in sel_set.selections:
+                if not isinstance(sel, FieldNode):
+                    continue
+                fname = sel.name.value
+                path  = f"{prefix}.{fname}" if prefix else fname
+
+                fld_def = parent_type.fields.get(fname)
+                if not fld_def:
+                    continue
+
+                # unwrap to get the NamedType
+                base_type = unwrap_type(fld_def.type)  # GraphQLNamedType
+                # fetch the description and normalize whitespace
+                desc = field_meta.get((parent_type.name, fname))
+                if desc:
+                    desc = " ".join(desc.split())
+                    # from:
+                    # out_lines.append(f'# @property {{""}} {path} - {desc}')
+                    # to:
+                    out_lines.append(f'# @property {{{base_type.name}}} {path} - {desc}')
+
+                # recurse into nested selections
+                if sel.selection_set and isinstance(base_type, GraphQLObjectType):
+                    walk(sel.selection_set, base_type, path)
+
+        for defn in query_ast.definitions:
+            if isinstance(defn, OperationDefinitionNode):
+                # print(f"schema: \n{dir(schema)}")
+                root_map = {
+                    "QUERY": schema.query_type,
+                    "MUTATION": schema.mutation_type,
+                    "subscription": schema.subscription_type
+                }
+                root = root_map[defn.operation.name]
+                walk(defn.selection_set, root, prefix="")
+
+        # 3) Build the header block
+        header = []
+        if var_lines:
+            header.append("# ")
+            header.extend(var_lines)
+        header.append("# @returns {Object}")
+        if out_lines:
+            header.append("# ")
+            header.extend(out_lines)
+
+        # 4) Print the actual query (unmodified) below
+        query_str = print_ast(query_ast)
+
+        return "\n".join(header + ["", query_str])  
+    
+    query_with_header_comments = print_query_with_header_comments(query_ast=query_ast, schema=schema)
+    print(f"query_with_header_comments: \n{query_with_header_comments}")
+    return query_with_header_comments
+
 class GraphQLQueryBuilder:
     def __init__(self, sdlfilename: str = None, disabled_fields: list[str]=[]):
-        _path = Path(__file__).parent
-        sdl_path =  _path / ("../sdl.graphql" if sdlfilename is None else _path)
-        sdl_path = sdl_path.resolve()
-        with open(sdl_path, "r", encoding="utf-8") as f:
+        # _path = Path(__file__).parent
+        # sdl_path =  _path / ("../sdl.graphql" if sdlfilename is None else _path)
+        # sdl_path = sdl_path.resolve()
+        with open(sdlfilename, "r", encoding="utf-8") as f:
             sdl_lines = f.readlines()
         sdl = "\n".join(sdl_lines)
-
+        directive_text = "directive @key(fields: String!) on OBJECT | INTERFACE"
+        sdl = f"{directive_text}\n{sdl}"
         self.ast = parse(sdl)
-        self.schema = build_ast_schema(self.ast)
+        # from strawberry.extensions.federation import federation_directives
+        # from graphql import GraphQLDirective, DirectiveLocation, GraphQLString
+
+        # federation_directives = [
+        #     GraphQLDirective(
+        #         name="key",
+        #         locations=[DirectiveLocation.OBJECT, DirectiveLocation.INTERFACE],
+        #         args={"fields": GraphQLString},
+        #         description="Federation @key directive",
+        #     ),
+        #     # Můžeš přidat další federation direktivy, pokud potřebuješ
+        # ]
+        # # self.ast.definitions.extend(federation_directives)
+        # self.ast.definitions = (*self.ast.definitions, *federation_directives)
+        self.schema = build_ast_schema(self.ast) #, assume_valid=True, directives=federation_directives)
         self.adjacency = self._build_adjacency(self.ast, disabled_fields)
 
     def _unwrap_type(self, t):
@@ -1652,28 +1855,29 @@ class GraphQLQueryBuilder:
                     queue.append((nxt, path + [(field, nxt)]))
         return []
 
-    def build_query_vector(self, types: List[str]) -> str:
+    def build_query_vector(self, page_operation:str=None, types: List[str]=[]) -> str:
         print(f"building query vector for types {types}")
         root = types[0]
         rootfragment = build_large_fragment(self.ast, root)
         page_operations = get_read_vector_values(self.ast)
-        page_operation = page_operations[root][0]
+        if page_operation is None:
+            page_operation = page_operations[root][0]
         # print(f"page_operation {page_operation}")
 
         field = select_ast_by_path(self.ast, ["Query", page_operation])
         
-        args = [(f"${arg.name.value}: {arg.type.name.value}" + ("!" if isinstance(arg.type, NonNullTypeNode) else "")) for arg in field.arguments]
+        # args = [(f"${arg.name.value}: {arg.type.name.value}" + ("!" if isinstance(arg.type, NonNullTypeNode) else "")) for arg in field.arguments]
+        args = [f"${arg.name.value}: {self.type_node_to_str(arg.type)}" for arg in field.arguments if field.arguments]
         args_str = ", ".join(args)
         args2 = [(f"{arg.name.value}: ${arg.name.value}") for arg in field.arguments]
         args2_str = ", ".join(args2)
         args3 = [
-                (
-                    f"# ${arg.name.value}: {arg.type.name.value}" + 
-                    ("!" if isinstance(arg.type, NonNullTypeNode) else "") + 
-                    f" # {arg.description.value}"
-                ) 
-                for arg in field.arguments
-            ]
+            (
+                f"# ${arg.name.value}: {self.type_node_to_str(arg.type)}" + 
+                f" # {arg.description.value if arg.description else ''}"
+            )
+            for arg in field.arguments
+        ]
         args3_str = "\n".join(args3)
         args3_str += "\n\n# to get more results, adjust parameters $skip and / or $limit and call the query until the result is empty vector\n"
         # print(f"args: {args}")
@@ -1700,31 +1904,65 @@ class GraphQLQueryBuilder:
             build_spread(root, path)
             for path in full_paths.values()
         ]
-        selections.append(rootfragment)
+        # selections.append(rootfragment)
 
         unique_selections = list(dict.fromkeys(selections))
-        selection_str = " ".join(unique_selections)
+        selection_str = "\n   ".join(unique_selections)
         query = f"query {page_operation}({args_str})\n{args3_str}\n{{\n   {page_operation}({args2_str})\n   {{\n    ...{root}MediumFragment\n ...{root}LargeFragment\n    {selection_str} \n   }} \n}}"
         # Append fragments after the main query
         fragments_str = "\n\n".join(fragments)
-        result = f"{query}\n\n{fragments_str}"
+        result = f"{query}\n\n{fragments_str}\n\n{rootfragment}"
         print(f"vector query \n{result}")
         return result
     
-    def build_query_scalar(self, types: List[str]) -> str:
+    def type_node_to_str(self, type_node):
+        if isinstance(type_node, NonNullTypeNode):
+            return self.type_node_to_str(type_node.type) + "!"
+        elif isinstance(type_node, ListTypeNode):
+            return "[" + self.type_node_to_str(type_node.type) + "]"
+        elif isinstance(type_node, NamedTypeNode):
+            return type_node.name.value
+        else:
+            raise TypeError(f"Unknown type node: {type(type_node)}")
+
+    def type_node_to_name(self, type_node):
+        if isinstance(type_node, NonNullTypeNode):
+            return self.type_node_to_str(type_node.type)
+        elif isinstance(type_node, ListTypeNode):
+            return self.type_node_to_str(type_node.type)
+        elif isinstance(type_node, NamedTypeNode):
+            return type_node.name.value
+        else:
+            raise TypeError(f"Unknown type node: {type(type_node)}")
+
+    def build_query_scalar(self, page_operation:str=None, types: List[str]=[]) -> str:
+        
+            
         print(f"building query scalar for types {types}")
         root = types[0]
         rootfragment = build_large_fragment(self.ast, root)
         page_operations = get_read_scalar_values(self.ast)
-        page_operation = page_operations[root][0]
+        if page_operation is None:
+            page_operation = page_operations[root][0] 
         # print(f"page_operation {page_operation}")
 
         field = select_ast_by_path(self.ast, ["Query", page_operation])
-        args = [(f"${arg.name.value}: {arg.type.name.value}" + ("!" if isinstance(arg.type, NonNullTypeNode) else "")) for arg in field.arguments]
+        if field is None:
+            raise ValueError(f"Field {page_operation} not found in Query type")
+        # args = [(f"${arg.name.value}: {arg.type.name.value}" + ("!" if isinstance(arg.type, NonNullTypeNode) else "")) for arg in field.arguments]
+        args = [f"${arg.name.value}: {self.type_node_to_str(arg.type)}" for arg in field.arguments if field.arguments]
         args_str = ", ".join(args)
         args2 = [(f"{arg.name.value}: ${arg.name.value}") for arg in field.arguments]
         args2_str = ", ".join(args2)
         # print(f"args: {args}")
+        args3 = [
+            (
+                f"# ${arg.name.value}: {self.type_node_to_str(arg.type)}" + 
+                f" # {arg.description.value if arg.description else ''}"
+            )
+            for arg in field.arguments
+        ]
+        args3_str = "\n".join(args3)
 
         # print(f"field: {field}, {field.name.value}")
         # Generate fragment definitions for each type
@@ -1751,7 +1989,7 @@ class GraphQLQueryBuilder:
         ]
         unique_selections = list(dict.fromkeys(selections))
         selection_str = " ".join(unique_selections)
-        query = f"query {page_operation}({args_str})\n{{\n   {page_operation}({args2_str})\n   {{\n    ...{root}MediumFragment\n    ...{root}LargeFragment\n    {selection_str} \n   }} \n}}"
+        query = f"query {page_operation}({args_str})\n{args3_str}\n{{\n   {page_operation}({args2_str})\n   {{\n    ...{root}MediumFragment\n    ...{root}LargeFragment\n    {selection_str} \n   }} \n}}"
         # Append fragments after the main query
         fragments_str = "\n\n".join(fragments)
         return f"{query}\n\n{fragments_str}"    
