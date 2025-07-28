@@ -1,3 +1,4 @@
+import uuid
 import typing
 import strawberry
 
@@ -19,6 +20,20 @@ class UserAbsoluteAccessControlExtension(TwoStageGenericBaseExtension, CallNextM
             directive_instance = PermissionCheckRoleDirective(roles=self.roles, rbacrelated=False)
             # Přidáme direktivu do pole
             field.directives.append(directive_instance)
+
+
+        graphql_disabled_vars = {"user_roles"}
+        field_arg_names = {arg.python_name for arg in field.arguments}
+        missing_args = graphql_disabled_vars - field_arg_names
+
+        # print(f"UserRoleProviderExtension.field_arg_names {field.name} {field_arg_names} / {missing_args} \n\t@ {self}[{self.id}: {self.counter}]")
+        # if missing_args:
+        #     raise RuntimeError(
+        #         f"Field {field.name} is missing expected arguments for extension {self.__class__.__name__}: {missing_args}"
+        #     )
+
+        field.arguments = [arg for arg in field.arguments if arg.python_name not in graphql_disabled_vars]
+
 
     async def resolve_async(self, next_, source, info: strawberry.types.Info, *args, **kwargs):
         input_params = next(iter(kwargs.values()), None)

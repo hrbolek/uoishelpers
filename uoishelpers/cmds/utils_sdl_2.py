@@ -684,7 +684,7 @@ def build_selection_optional(sdl_doc: DocumentNode,
     if not type_def or not type_def.fields:
         return ""
 
-    parts = []
+    parts = ["__typename"]
     for f in type_def.fields:
         name = f.name.value
         if name.startswith("__"):
