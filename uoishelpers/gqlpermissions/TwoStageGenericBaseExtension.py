@@ -69,5 +69,7 @@ class TwoStageGenericBaseExtension(FieldExtension, typing.Generic[TErrorType, TG
             "_input": input_data or {},
             "location": self.get_path_string(info.path) if hasattr(info, "path") and info.path else None
         }
+        if info.context.get("errors", None) is None:
+            info.context["errors"] = []
         info.context["errors"].append(error_description)
         return self.ErrorType[self.GQLModel](**error_description)

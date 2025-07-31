@@ -280,6 +280,7 @@ def createInputs2(cls):
     # 3) Helper na vytvoření 'or', 'and' i samotného 'where'
     def buildOpType(typeName: str, extra: dict):
         Op = type(typeName, (), {})
+
         annotations = { **extra, **customInputsDict }
         Op.__annotations__ = annotations
         
@@ -300,6 +301,7 @@ def createInputs2(cls):
             # elif op_field == whereName:
             #     pass
             else:
+                Op.__annotations__[op_field] = typing.Optional[annotation] # marking filter as Optional
                 desc: str = annotation.__strawberry_definition__.description
                 # print(f"annotation {annotation}", flush=True)
 
