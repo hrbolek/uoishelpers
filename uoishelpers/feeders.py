@@ -70,18 +70,18 @@ async def putPredefinedStructuresIntoTable(
             nextPhase = [*unsavedRows]
             while len(nextPhase) > 0:
                 # zjistime nejmensi cislo poradi ukladani
-                chunkNumber = min(map(lambda item: item["_chunk"], nextPhase))
+                chunkNumber = min(map(lambda item: item.get("_chunk", 0), nextPhase))
                 # filtrujeme radky, ktere maji toto cislo
                 toSave = list(
                     filter(
-                        lambda item: item["_chunk"] == chunkNumber,
+                        lambda item: item.get("_chunk", 0) == chunkNumber,
                         nextPhase
                     )
                 )
                 # ostatni nechame na pozdeji
                 nextPhase = list(
                     filter(
-                        lambda item: item["_chunk"] != chunkNumber,
+                        lambda item: item.get("_chunk", 0) != chunkNumber,
                         nextPhase
                     )
                 )
