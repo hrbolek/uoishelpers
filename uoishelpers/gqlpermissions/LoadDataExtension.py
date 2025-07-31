@@ -3,8 +3,9 @@ import uuid
 from .TwoStageGenericBaseExtension import TwoStageGenericBaseExtension
 from .CallNextMixin import CallNextMixin
 class LoadDataExtension(TwoStageGenericBaseExtension, CallNextMixin):
-    def __init__(self, *, primary_key_name: str = "id"):
+    def __init__(self, *, primary_key_name: str = "id", getLoader = None):
         self.primary_key_name = primary_key_name
+        self.getLoader = getLoader
         super().__init__()
 
     def apply(self, field):
@@ -37,12 +38,13 @@ class LoadDataExtension(TwoStageGenericBaseExtension, CallNextMixin):
                 code="a849f652-663b-4658-b594-920b7b9355c6",
                 input_data=input_params
             )
-        
-        loader = getattr(input_params, "getLoader", None)
-        if loader is None:
-            loader = self.GQLModel.getLoader(info)
-        else:
-            loader = loader(info=info)
+
+        loader = self.getLoader(info) if self.getLoader else self.GQLModel.getLoader(info)
+        # loader = getattr(input_params, "getLoader", None)
+        # if loader is None:
+        #     loader = self.GQLModel.getLoader(info)
+        # else:
+        #     loader = loader(info=info)
         
         if not loader:
             return self.return_error(
