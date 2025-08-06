@@ -77,7 +77,11 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
     async def insert(self, entity, extraAttributes={}):
         newdbrow = self.dbModel()
         newdbrow = update(newdbrow, entity, extraAttributes)
+        if newdbrow.id is None:
+            newdbrow.id = uuid.uuid4()
         self.session.add(newdbrow)
+        self.registerResult(newdbrow)
+        # await self.session.flush()
         # await self.session.commit()
         # session should be autocommitted to make the whole graphql transaction atomic
         return newdbrow
