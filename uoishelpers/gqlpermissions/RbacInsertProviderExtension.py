@@ -4,10 +4,12 @@ MISSING = object()
 
 from .RbacProviderExtension import RbacProviderExtension
 class RbacInsertProviderExtension(RbacProviderExtension):
+    def __init__(self, rbac_key_name="rbacobject_id"):
+        self.rbac_key_name = rbac_key_name
 
     async def provide_rbac_object_id(self, source, info: strawberry.types.Info, *args, **kwargs):
         input_params = next(iter(kwargs.values()), None)
-        rbacobject_id = getattr(input_params, "rbacobject_id", MISSING)
+        rbacobject_id = getattr(input_params, self.rbac_key_name, MISSING)
         return rbacobject_id
     
     async def resolve_async(self, next_, source, info: strawberry.types.Info, *args, **kwargs):
