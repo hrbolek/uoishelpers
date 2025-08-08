@@ -39,7 +39,8 @@ class InsertError(typing.Generic[InputType]):
             d_str = json.dumps(d, default=str)
             d = json.loads(d_str)
         else:
-            d = {key: f"{value}" if isinstance(value, (datetime.datetime, IDType)) else value for key, value in strawberry.asdict(self._input).items() if value is not None}
+            # d = {key: f"{value}" if isinstance(value, (datetime.datetime, IDType)) else value for key, value in strawberry.asdict(self._input).items() if value is not None}
+            d = {"raw": f"{self._input}"}
         return d
 
 sentinel = "ea3afa47-3fc4-4d50-8b76-65e3d54cce01"
@@ -118,6 +119,36 @@ class InputModelMixin:
         raise NotImplementedError(
             f"Class {cls.__name__} must implement getLoader()."
         )
+
+    def set_rbacobject_id(self, rbacobject_id):
+        self.set_rbacobject_id_recursively(self, rbac_id=rbacobject_id)
+
+    def set_rbacobject_id_recursively(self, obj, rbac_id, visited=None):
+        if visited is None:
+            visited = set()
+
+        if obj is None or obj.id in visited:
+            return
+
+        visited.add(obj.id)
+
+        # Nastavíme rbacobject_id pokud existuje
+        if hasattr(obj, "rbacobject_id"):
+            setattr(obj, "rbacobject_id", rbac_id)
+
+        if not dataclasses.is_dataclass(obj):
+            return
+
+        for field in dataclasses.fields(obj):
+            value = getattr(obj, field.name, None)
+
+            if isinstance(value, list):
+                for item in value:
+                    if dataclasses.is_dataclass(item):
+                        self.set_rbacobject_id_recursively(item, rbac_id, visited)
+
+            elif dataclasses.is_dataclass(value):
+                self.set_rbacobject_id_recursively(value, rbac_id, visited)
 
     async def intoModel(self, info: strawberry.types.Info):
         loader = self.getLoader(info)

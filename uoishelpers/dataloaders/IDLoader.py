@@ -75,10 +75,12 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
         return result
     
     async def insert(self, entity, extraAttributes={}):
-        newdbrow = self.dbModel()
-        newdbrow = update(newdbrow, entity, extraAttributes)
-        if newdbrow.id is None:
-            newdbrow.id = uuid.uuid4()
+        if isinstance(entity, self.dbModel):
+            newdbrow = entity
+            newdbrow = update(newdbrow, None, extraAttributes)
+        else:
+            newdbrow = self.dbModel()
+            newdbrow = update(newdbrow, entity, extraAttributes)
         self.session.add(newdbrow)
         self.registerResult(newdbrow)
         # await self.session.flush()
