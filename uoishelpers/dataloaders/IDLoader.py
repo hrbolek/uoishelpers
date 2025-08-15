@@ -16,7 +16,7 @@ def update(destination, source=None, extraValues={}, UNSET=strawberry.UNSET):
         # Vezmi pouze fieldy deklarované jako dataclass attribute
         for field in fields(destination):
             name = field.name
-            value = getattr(source, name, None)
+            value = getattr(source, name, UNSET)
             if value is not UNSET:
                 setattr(destination, name, value)
     for name, value in extraValues.items():
@@ -83,7 +83,7 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
             newdbrow = update(newdbrow, entity, extraAttributes)
         self.session.add(newdbrow)
         self.registerResult(newdbrow)
-        await self.session.flush()
+        await self.session.flush()        
         # await self.session.commit()
         # session should be autocommitted to make the whole graphql transaction atomic
         return newdbrow
@@ -109,14 +109,12 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
 
         # NEVOLAT commit!
         self.registerResult(rowToUpdate)
-        await self.session.flush()
         return rowToUpdate
     
     async def delete(self, id):
         stmt = delete(self.dbModel).where(self.dbModel.id == id)
         await self.session.execute(stmt)
         self.clear(id)
-        await self.session.flush()
         # commit nevolat zde!
 
     def registerResult(self, result) -> T:
