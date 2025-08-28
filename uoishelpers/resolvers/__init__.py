@@ -1,5 +1,6 @@
 import uuid
 import dataclasses
+import json
 import sqlalchemy
 import strawberry  # strawberry-graphql==0.119.0
 
@@ -286,7 +287,10 @@ def createInputs2(cls):
                 if __strawberry_definition__:
                     desc: str = annotation.__strawberry_definition__.description
                 else:
-                    desc: str = "compound filter"
+                    field = getattr(cls, op_field, None)
+                    if field is not None:
+                        desc: str = getattr(field, "description", "compound filter")
+                    # desc: str = "compound filter"
                 # print(f"annotation {annotation}", flush=True)
 
             # new_examples = []
@@ -318,7 +322,7 @@ def createInputs2(cls):
                         renamed_example = example
                     else:
                         renamed_example = {field_name: op for op in example.values()}
-                    examples_description += f"\n\t {renamed_example}"
+                    examples_description += f"\n\t {json.dumps(renamed_example)}"
                     # print(f"{field_name}: {filter_field}: {renamed_example}")
                     pass
             if example_count:
@@ -326,7 +330,12 @@ def createInputs2(cls):
             if examples_description:
                 all_fields_md += f"\n- **{field_name}** filter, examples:\n{examples_description}"
             else:
-                all_fields_md += f"\n- **{field_name}** compound sub filter"
+                description = "compound sub filter"
+                field = getattr(cls, field_name, None)
+                if field is not None:
+                    description = getattr(field, "description", description)
+
+                all_fields_md += f"\n- **{field_name}** {description}"
         # all_fields_md = "\n".join(
         #     f"- **{name}**: {desc}"
         #     for name, desc in field_descriptions.items()
