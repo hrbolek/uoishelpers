@@ -189,93 +189,73 @@ def createInputs2(cls):
     zachová ho a nepřepíše.
     """
     clsname = cls.__name__
+    module_path = cls.__module__
     whereName = clsname
     orName    = f"{clsname}_or"
     andName   = f"{clsname}_and"
 
     fieldNames = list(cls.__annotations__.keys())
     types_     = list(cls.__annotations__.values())
+    cls__annotations__ = cls.__annotations__
 
     customInputs = []
     customInputsDict = {}
+
+    from typing import get_origin, get_args, Optional, List, Union, Tuple, Set, Annotated, ForwardRef
+    import types
+    from strawberry import LazyType
+    NoneType = type(None)
+    # def unwrap(t):
+    #     # strip Annotated[T, ...]
+    #     if get_origin(t) is Annotated:
+    #         t = get_args(t)[0]
+    #         return unwrap(t)
+
+    #     o = get_origin(t)
+
+    #     # Optional / Union / PEP604 unions
+    #     if o in (Union, types.UnionType):
+    #         args = [a for a in get_args(t) if a is not NoneType]
+    #         if len(args) == 1:
+    #             return unwrap(args[0])      # Optional[T] -> T
+    #         # heterogenní union (A|B) – nevíme zvolit jediný typ, vrať jak je
+    #         return t
+
+    #     # Kolekce: List[T], Set[T]
+    #     if o in (list, List, set, Set):
+    #         (inner,) = get_args(t) or (object,)
+    #         return unwrap(inner)
+
+    #     # Tuple[...] – variadické vs heterogenní
+    #     if o in (tuple, Tuple):
+    #         args = get_args(t)
+    #         if len(args) == 2 and args[1] is Ellipsis:   # Tuple[T, ...]
+    #             return unwrap(args[0])
+    #         if len(args) == 1:                           # Tuple[T]
+    #             return unwrap(args[0])
+    #         return t                                     # heterogenní tuple – necháme být
+
+    #     # ForwardRef apod. – necháme být; vyřeší se později
+    #     return t
     # print(f"description of {clsname}\n{cls.__dataclass_fields__}")
     # 1) Projdeme každé pole a vyrobíme mu vlastní Input typ
     for field, baseType in zip(fieldNames, types_):
         # Pokud už máme mapování pro baseType, použijeme ho
-        existing = inputTypeGQLMapper.get(baseType)
-        
+        # base = unwrap(baseType)
+        base = baseType
+        # existing = inputTypeGQLMapper.get(baseType)
+        existing = inputTypeGQLMapper.get(base)
         original = getattr(cls, field, None)
-
-        # if existing and original is None:
-        #     # typ fieldu je registrovany, field nema prirazene strawberry.field
-        #     print("existing and original is None")
-        #     customInputs.append(existing)
-        #     customInputsDict[field] = existing
-        #     continue
         if existing:
-            # typ fieldu je registrovany, field ma prirazene strawberry.field
-            # meli bychom rozlisit o jaky typ se jedna?
-            # print(f"existing filter for {clsname}.{field}")
             customInputs.append(existing)
             customInputsDict[field] = existing
             continue
 
-        # print(f"new filter for {clsname}.{field}")
-        # Jinak vytvoříme nový pomocný typ - filter pro dany field
-        inputName = f"{clsname}_{field}"
-        NewInput = type(inputName, (), {})
-
-        # tady by asi stalo za to udelat ForwardRef?
-        # v kazdem pripade baseType musi byt dekorovana class
-        NewInput.__annotations__ = { field: typing.Optional[baseType] }
-        # master_example = []
-        # for field_name, field_type in baseType.__annotations__.items():
-        #     print(f"{field_name}: {field_type}")
-        #     filter_type = inputTypeGQLMapper.get(field_type, None)
-        #     if filter_type is None:
-        #         continue
-
-        #     for filter_field in filter_type._type_definition.fields:
-        #         example = filter_field.metadata.get("example", None)     
-        #         if example is None:
-        #             continue   
-        #         renamed_example = {field_name: op for op in example.values()}
-        #         master_example.append(renamed_example)
-
-        # description = build_description_from_input(baseType=baseType)
-        
-        # Zjistíme, jestli původní dataclass měl strawberry.field
-        original = getattr(cls, field, None)
-        if isinstance(original, dataclasses.Field):
-            # zachováme ho beze změny
-            setattr(NewInput, field, original)
-        else:
-            # nebo vytvoříme defaultní
-            # TODO vytvorit example a vlozit jej do metadat
-            setattr(
-                NewInput, field,
-                strawberry.field(
-                    # description=f'filter for field "{field}"\n# {description}',
-                    description=f'- {field}: Compound filter ',
-                    default=None,
-                    # metadata={"example": master_example}
-                )
-            )
-
-        # Oblečeme to do strawberry.input
-        gqlInput = strawberry.input(
-            NewInput,
-            description=f"Filter for type '{clsname}'."
-        )
-        # Uložíme si do mapperu a přidáme do seznamu
-        inputTypeGQLMapper[baseType] = gqlInput
-        customInputs.append(gqlInput)
-        customInputsDict[field] = gqlInput
+        customInputsDict[field] = Optional[base]
 
     # 2) Sestavíme slovník fieldName → jeho Input typ pro další operátory
     print(f"{clsname}: customInputsDict = {customInputsDict}")
     # v teto chvili customInputs ma vsechny pridane filtry v poradi odpovidajici fieldNames
-
 
     # 3) Helper na vytvoření 'or', 'and' i samotného 'where'
     def buildOpType(typeName: str, extra: dict):
@@ -302,7 +282,11 @@ def createInputs2(cls):
             #     pass
             else:
                 Op.__annotations__[op_field] = typing.Optional[annotation] # marking filter as Optional
-                desc: str = annotation.__strawberry_definition__.description
+                __strawberry_definition__ = getattr(annotation, "__strawberry_definition__", None)
+                if __strawberry_definition__:
+                    desc: str = annotation.__strawberry_definition__.description
+                else:
+                    desc: str = "compound filter"
                 # print(f"annotation {annotation}", flush=True)
 
             # new_examples = []
@@ -323,18 +307,20 @@ def createInputs2(cls):
             
             examples_description = ""
             example_count = 0
-            for filter_field in field_type.__strawberry_definition__.fields:
-                example = filter_field.metadata.get("example", None)     
-                if example is None:
-                    continue   
-                example_count += 1
-                if isinstance(example, list):
-                    renamed_example = example
-                else:
-                    renamed_example = {field_name: op for op in example.values()}
-                examples_description += f"\n\t {renamed_example}"
-                # print(f"{field_name}: {filter_field}: {renamed_example}")
-                pass
+            __strawberry_definition__ = getattr(field_type, "__strawberry_definition__", None)
+            if __strawberry_definition__:
+                for filter_field in field_type.__strawberry_definition__.fields:
+                    example = filter_field.metadata.get("example", None)     
+                    if example is None:
+                        continue   
+                    example_count += 1
+                    if isinstance(example, list):
+                        renamed_example = example
+                    else:
+                        renamed_example = {field_name: op for op in example.values()}
+                    examples_description += f"\n\t {renamed_example}"
+                    # print(f"{field_name}: {filter_field}: {renamed_example}")
+                    pass
             if example_count:
                 pass
             if examples_description:
@@ -371,11 +357,12 @@ def createInputs2(cls):
             "_and": typing.Optional[typing.List[andName]],
         }
     )
-
+    whereOpLazy = Annotated[whereName, strawberry.lazy(module_path)]
+    inputTypeGQLMapper[cls] = whereOpLazy
     # 4) Exportujeme všechny nově vytvořené typy do modulu, kde byla dataclass
     mod = sys.modules[__name__]
-    for typ in [whereOp, andOp, orOp, *customInputs]:
-        setattr(mod, typ.__name__, typ)
+    for type_ in [whereOp, andOp, orOp, *customInputs]:
+        setattr(mod, type_.__name__, type_)
 
     return whereOp
 
@@ -389,7 +376,7 @@ def createInputs_old(cls):
 
     clsname = cls.__name__
     # print(f"GQL definitions for {clsname}")
-    #whereName = clsname + "_where"
+    # whereName = clsname + "_where"
     whereName = clsname
     orName = clsname + "_or"
     andName = clsname + "_and"
