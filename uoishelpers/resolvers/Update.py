@@ -25,10 +25,11 @@ class UpdateError(typing.Generic[UpdateType]):
             return None
         if dataclasses.is_dataclass(self._input):
             d = dataclasses.asdict(self._input)
+            d = {k: v for k, v in d.items() if v not in [None, strawberry.UNSET]}
             d_str = json.dumps(d, default=str)
             d = json.loads(d_str)
         else:
-            d = {key: f"{value}" if isinstance(value, (datetime.datetime, IDType)) else value for key, value in strawberry.asdict(self._input).items() if value is not None}
+            d = {key: f"{value.isoformat()}" if isinstance(value, (datetime.datetime, IDType)) else value for key, value in strawberry.asdict(self._input).items() if value is not None}
         return d
 
 from functools import cache

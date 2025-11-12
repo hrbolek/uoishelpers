@@ -97,15 +97,16 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
             return None
 
         # Optimistic locking: kontrola lastchange
-        if hasattr(rowToUpdate, 'lastchange'):
+        if haslastchange := hasattr(rowToUpdate, 'lastchange'):
             if getattr(entity, 'lastchange', None) != rowToUpdate.lastchange:
                 return None  # nebo raise Conflict
-            # Nastav novou hodnotu lastchange (na rowToUpdate!)
-            import datetime
-            rowToUpdate.lastchange = datetime.datetime.now()
 
         # Aktualizuj hodnoty (pouze not-None fields, jak chceš)
         update(rowToUpdate, entity, extraValues)
+        if haslastchange:
+            # Nastav novou hodnotu lastchange (na rowToUpdate!)
+            import datetime
+            rowToUpdate.lastchange = datetime.datetime.now()
 
         # NEVOLAT commit!
         self.registerResult(rowToUpdate)
