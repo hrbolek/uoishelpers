@@ -12,6 +12,7 @@ DeleteType = typing.TypeVar("GQLEntityType")
 class DeleteError(typing.Generic[DeleteType]):
     _entity: typing.Optional[DeleteType] = strawberry.field(default=None, description="Entity to be updated")
     msg: str = strawberry.field(default=None, description="reason of fail")
+    # code: typing.Optional[IDType] = strawberry.field(default=None, description="error code, if available")
     failed: bool = strawberry.field(default=True, description="always True, available when error")
     location: typing.Optional[str] = strawberry.field(default=None, description="location of the error - resolver name")
     _input: strawberry.Private[object]
@@ -43,9 +44,33 @@ class Delete:
             timestamp = getattr(row, "lastchange", None)
             if timestamp:
                 if timestamp != entity.lastchange:
-                    return DeleteError[type_arg](_entity=_entity, msg=f"Someone changed entity", _input=entity)
+                    # code = "7163dd9c-752c-4d1d-a89e-0bdbc7988a8e"
+                    location = cls.get_path_string(info.path) if hasattr(info, "path") and info.path else None
+
+                    return DeleteError[type_arg](
+                        _entity=_entity, 
+                        msg=f"Someone changed entity", 
+                        location=location,
+                        _input=entity
+                    )
             await loader.delete(entity.id)
             return None
         except Exception as e:
             _entity = await type_arg.resolve_reference(info=info, id=entity.id)
-            return DeleteError[type_arg](_entity=_entity, msg=f"{e}", _input=entity)
+            # code = "7163dd9c-752c-4d1d-a89e-0bdbc7988a8e"
+            location = cls.get_path_string(info.path) if hasattr(info, "path") and info.path else None
+            return DeleteError[type_arg](
+                _entity=_entity, 
+                location=location,
+                msg=f"{e}", 
+                _input=entity
+            )
+        
+    @classmethod
+    def get_path_string(cls, path) -> str:
+        parts = []
+        current = path
+        while current is not None:
+            parts.append(str(current.key))
+            current = current.prev
+        return ".".join(reversed(parts)) 

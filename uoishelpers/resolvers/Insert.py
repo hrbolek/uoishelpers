@@ -81,13 +81,37 @@ class Insert:
             # print(f"entity {entity}")
             row = await loader.insert(entity_)
             if row is None:
-                return InsertError[type_arg](msg="insert failed", _input=entity_)
+                code = "ca8b4531-9419-4b87-badd-823d364f6c9b"
+                location = cls.get_path_string(info.path) if hasattr(info, "path") and info.path else None
+                return InsertError[type_arg](
+                    msg="insert failed", 
+                    code=code,
+                    location=location,
+                    _input=entity_
+                )
             else:
                 return await type_arg.resolve_reference(info=info, id=row.id)
         except Exception as e:
-            return InsertError[type_arg](msg=f"{e}", _input=entity_)        
+            code = "7163dd9c-752c-4d1d-a89e-0bdbc7988a8e"
+            location = cls.get_path_string(info.path) if hasattr(info, "path") and info.path else None
+
+            return InsertError[type_arg](
+                msg=f"{e}", 
+                code=code,
+                location=location,
+                _input=entity_
+            )
         
 
+    @classmethod
+    def get_path_string(cls, path) -> str:
+        parts = []
+        current = path
+        while current is not None:
+            parts.append(str(current.key))
+            current = current.prev
+        return ".".join(reversed(parts))        
+    
 async def _convert(info, value):
     if hasattr(value, "intoModel"):
         return await value.intoModel(info)

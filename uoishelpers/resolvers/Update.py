@@ -62,7 +62,7 @@ class Update:
                 # _entity = await loader.load(facility.id)
                 _entity = await type_arg.resolve_reference(info=info, id=entity.id)
                 code = "0cabc1b2-f712-49bd-8823-1e2905eb4f45"
-                location = self.get_path_string(info.path) if hasattr(info, "path") and info.path else None
+                location = cls.get_path_string(info.path) if hasattr(info, "path") and info.path else None
                 return UpdateError[type_arg](
                     _entity=_entity, 
                     code=code,
@@ -75,7 +75,7 @@ class Update:
         except Exception as e:
             _entity = await type_arg.resolve_reference(info=info, id=entity.id)
             code = "5804ee6a-bd15-40e6-9b0b-879c595fec3b"
-            location = self.get_path_string(info.path) if hasattr(info, "path") and info.path else None
+            location = cls.get_path_string(info.path) if hasattr(info, "path") and info.path else None
 
             return UpdateError[type_arg](
                 _entity=_entity, 
@@ -84,3 +84,12 @@ class Update:
                 msg=f"{e}", 
                 _input=entity
             )
+        
+    @classmethod
+    def get_path_string(cls, path) -> str:
+        parts = []
+        current = path
+        while current is not None:
+            parts.append(str(current.key))
+            current = current.prev
+        return ".".join(reversed(parts))        
