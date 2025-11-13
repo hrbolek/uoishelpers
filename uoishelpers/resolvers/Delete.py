@@ -12,11 +12,18 @@ DeleteType = typing.TypeVar("GQLEntityType")
 class DeleteError(typing.Generic[DeleteType]):
     _entity: typing.Optional[DeleteType] = strawberry.field(default=None, description="Entity to be updated")
     msg: str = strawberry.field(default=None, description="reason of fail")
-    # code: typing.Optional[IDType] = strawberry.field(default=None, description="error code, if available")
+    code: typing.Optional[IDType] = strawberry.field(default=None, description="error code, if available")
     failed: bool = strawberry.field(default=True, description="always True, available when error")
     location: typing.Optional[str] = strawberry.field(default=None, description="location of the error - resolver name")
     _input: strawberry.Private[object]
 
+    @classmethod
+    @cache
+    def __class_getitem__(cls, item):
+        # When MyGenericClass[int] is accessed, create a new class with type_arg set
+        new_cls = type(f"{cls.__name__}[{item if isinstance(item, str) else item.__name__}]", (cls,), {"type_arg": item})
+        return new_cls
+    
     @strawberry.field(description="original data")
     def input(self) -> typing.Optional[strawberry.scalars.JSON]:
         if self._input is None:
