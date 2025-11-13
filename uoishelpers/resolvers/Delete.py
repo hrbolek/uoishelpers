@@ -21,12 +21,12 @@ class DeleteError(typing.Generic[DeleteType]):
     location: typing.Optional[str] = strawberry.field(default=None, description="location of the error - resolver name")
     _input: strawberry.Private[object]
 
-    @classmethod
-    @cache
-    def __class_getitem__(cls, item):
-        # When MyGenericClass[int] is accessed, create a new class with type_arg set
-        new_cls = type(f"{cls.__name__}[{item if isinstance(item, str) else item.__name__}]", (cls,), {"type_arg": item})
-        return new_cls
+    # @classmethod
+    # @cache
+    # def __class_getitem__(cls, item):
+    #     # When MyGenericClass[int] is accessed, create a new class with type_arg set
+    #     new_cls = type(f"{cls.__name__}[{item if isinstance(item, str) else item.__name__}]", (cls,), {"type_arg": item})
+    #     return new_cls
     
     @strawberry.field(description="original data")
     def input(self) -> typing.Optional[strawberry.scalars.JSON]:
