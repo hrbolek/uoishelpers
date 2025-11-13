@@ -1,6 +1,8 @@
 import typing
 import datetime
 import strawberry
+import dataclasses
+import json
 
 from .fromContext import getUserFromInfo
 
@@ -28,7 +30,13 @@ class DeleteError(typing.Generic[DeleteType]):
     def input(self) -> typing.Optional[strawberry.scalars.JSON]:
         if self._input is None:
             return None
-        d = {key: f"{value}" if isinstance(value, (datetime.datetime, IDType)) else value for key, value in strawberry.asdict(self._input).items() if value is not None}
+        if dataclasses.is_dataclass(self._input):
+            d = dataclasses.asdict(self._input)
+            d_str = json.dumps(d, default=str)
+            d = json.loads(d_str)
+        else:
+            # d = {key: f"{value}" if isinstance(value, (datetime.datetime, IDType)) else value for key, value in strawberry.asdict(self._input).items() if value is not None}
+            d = {"raw": f"{self._input}"}
         return d
 
 from functools import cache
@@ -64,11 +72,12 @@ class Delete:
             return None
         except Exception as e:
             _entity = await type_arg.resolve_reference(info=info, id=entity.id)
-            # code = "7163dd9c-752c-4d1d-a89e-0bdbc7988a8e"
+            code = "7163dd9c-752c-4d1d-a89e-0bdbc7988a8e"
             location = cls.get_path_string(info.path) if hasattr(info, "path") and info.path else None
             return DeleteError[type_arg](
                 _entity=_entity, 
                 location=location,
+                code=code,
                 msg=f"{e}", 
                 _input=entity
             )
