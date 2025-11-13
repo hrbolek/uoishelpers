@@ -4,6 +4,8 @@ import strawberry
 import dataclasses
 import json
 
+from functools import cache
+
 from .fromContext import getUserFromInfo
 
 from .IDType import IDType
