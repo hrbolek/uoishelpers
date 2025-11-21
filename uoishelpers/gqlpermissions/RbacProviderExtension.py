@@ -5,6 +5,68 @@ MISSING = object()
 from .TwoStageGenericBaseExtension import TwoStageGenericBaseExtension
 from .CallNextMixin import CallNextMixin
 class RbacProviderExtension(TwoStageGenericBaseExtension, CallNextMixin):
+    """
+    Field extension, která před voláním resolveru zjistí `rbacobject_id`
+    pro daný databázový řádek (`db_row`) a předá ho resolveru jako argument
+    `rbacobject_id`.
+
+    Typický kontext použití:
+    - `db_row` byl už předtím načten jinou extension (např. `LoadDataExtension`)
+      a je předán v `kwargs`.
+    - Pro RBAC kontrolu potřebujeme znát identifikátor RBAC objektu (`rbacobject_id`),
+      který je uložený buď:
+        - jako atribut `rbacobject_id` na `db_row`, nebo
+        - pokud je `rbacobject_id` None, tak se použije fallback `db_row.id`.
+
+    Chování:
+
+    - V `apply()`:
+      - Očekává, že rozšířený resolver má v signatuře parametr `rbacobject_id`.
+      - Tento parametr odstraní z `field.arguments`, takže se v GraphQL schématu
+        neobjeví (klient ho neposílá), ale resolver ho přesto dostane jako
+        pojmenovaný argument.
+    
+    - V `provide_rbac_object_id()`:
+      - Z `kwargs` vezme `db_row` (nebo `MISSING`, pokud chybí).
+      - Pokusí se z `db_row` přečíst atribut `rbacobject_id`.
+      - Vrací jednu z hodnot:
+        - konkrétní `rbacobject_id`,
+        - `MISSING`, pokud atribut neexistuje.
+
+    - V `resolve_async()`:
+      1. Z input parametrů (první hodnota v `kwargs`) si vezme `input_params`,
+         aby je mohl případně použít v chybové zprávě.
+      2. Zavolá `provide_rbac_object_id(...)` a získá `rbacobject_id`.
+      3. Pokud je výsledek `MISSING`:
+         - vrátí chybu `return_error(...)` s hláškou
+           `"rbacobject_id is not defined on data_row"`.
+      4. Pokud je `rbacobject_id` rovno `None`:
+         - pokusí se použít `db_row.id` jako fallback,
+         - pokud je výsledkem opět `None`, vrací chybu
+           `"rbacobject_id is not set in data_row"`.
+      5. Při úspěchu zavolá `next_(...)` a předá dál argument
+         `rbacobject_id=rbacobject_id` spolu se všemi původními `*args, **kwargs`.
+
+    Použití:
+
+    - Resolver musí mít v signatuře parametr `rbacobject_id`, ale v GraphQL schématu
+      se tento argument neobjeví (extension ho skryje).
+    - V typické RBAC pipeline je `RbacProviderExtension` v seznamu `extensions=[...]`
+      zapsaná tak, aby se spustila až po načtení `db_row` (např. po `LoadDataExtension`),
+      ale ještě před extensions, které `rbacobject_id` potřebují (např.
+      `UserRoleProviderExtension`):
+      
+        extensions = [
+            UserAccessControlExtension(...),
+            UserRoleProviderExtension(...),
+            RbacProviderExtension(...),
+            LoadDataExtension(...),
+        ]
+
+      Vzhledem k tomu, že Strawberry volá extensions od poslední k první, proběhne
+      nejdříve `LoadDataExtension`, pak `RbacProviderExtension`, potom
+      `UserRoleProviderExtension` a nakonec `UserAccessControlExtension` i resolver.
+    """    
     def apply(self, field):
         graphql_disabled_vars = {"rbacobject_id"}
         field_arg_names = {arg.python_name for arg in field.arguments}

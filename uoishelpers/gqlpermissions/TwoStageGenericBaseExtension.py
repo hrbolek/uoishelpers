@@ -9,6 +9,33 @@ TErrorType = typing.TypeVar("ErrorType")
 TGQLModel = typing.TypeVar("GQLModel")
 
 class TwoStageGenericBaseExtension(FieldExtension, typing.Generic[TErrorType, TGQLModel]):
+    """
+    Základní třída pro všechny „RBAC“ field extensions, která řeší:
+
+    1) Dvoustupňová generika (ErrorType, GQLModel)
+       - Umožňuje zapisovat specializaci více způsoby, např.:
+           TwoStageGenericBaseExtension[MyError, MyModel]
+           TwoStageGenericBaseExtension[MyError][MyModel]
+           SomeExtension[MyError, MyModel]
+       - Metoda `__class_getitem__` dynamicky vytvoří novou odvozenou třídu
+         s atributy `ErrorType` a `GQLModel`, takže konkrétní extension
+         „ví“, jaký error typ a jaký GraphQL model má vracet.
+
+    2) Jednotný způsob vracení chyb (`return_error`)
+       - `return_error(info, message, code, input_data)`:
+         - složí slovník s údaji o chybě (`msg`, `code`, `_input`, `location`),
+         - doplní ho do `info.context["errors"]` (pro sběr chyb na úrovni requestu),
+         - vrátí instanci `ErrorType[GQLModel](**error_description)`, tedy
+           GraphQL error objekt správného typu.
+       - `location` se získá z `info.path` pomocí pomocné metody `get_path_string`,
+         takže víme, kde v GraphQL dotazu chyba vznikla.
+
+    Tuto třídu typicky dědí konkrétní extensions jako
+    `LoadDataExtension`, `RbacProviderExtension`, `UserRoleProviderExtension`,
+    `UserAccessControlExtension` atd., aby sdílely stejný způsob práce s typy
+    a chybovými odpověďmi.
+    """
+        
     GQLModel = None
     ErrorType = None
 

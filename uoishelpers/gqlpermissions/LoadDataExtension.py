@@ -3,6 +3,48 @@ import uuid
 from .TwoStageGenericBaseExtension import TwoStageGenericBaseExtension
 from .CallNextMixin import CallNextMixin
 class LoadDataExtension(TwoStageGenericBaseExtension, CallNextMixin):
+    """
+    Field extension, která před voláním resolveru načte jeden řádek z databáze
+    pomocí asynchronního dataloaderu a předá ho resolveru jako argument `db_row`.
+
+    Chování:
+
+    - V `apply()`:
+      - Očekává, že rozšířený resolver má v signatuře parametr `db_row`.
+      - Tento parametr odstraní z `field.arguments`, takže se v GraphQL schématu
+        vůbec neobjeví (klient ho nemůže posílat), ale resolver ho přesto dostane.
+
+    - V `resolve_async()`:
+      1. Jako vstupní hodnotu bere první položku z `kwargs`:
+         - obvykle je to input objekt (např. `input: MyUpdateInput`),
+         - případně přímo `uuid.UUID`, pokud resolver bere jen `id`.
+      2. Z inputu vezme primární klíč:
+         - standardně atribut `id`, nebo jiný název určený `primary_key_name`,
+         - pokud je vstup rovnou `uuid.UUID`, použije se přímo.
+      3. Získá dataloader:
+         - buď voláním `getLoader(info)`, pokud byla funkce předána v konstruktoru,
+         - nebo výchozím `self.GQLModel.getLoader(info)`.
+      4. Pomocí dataloaderu načte řádek z databáze (`db_row = await loader.load(id)`).
+      5. Pokud chybí input, id, loader nebo se záznam v databázi nenajde,
+         vrátí chybový objekt pomocí `return_error(...)`.
+      6. Při úspěchu zavolá `next_(...)` a předá dál argument `db_row=db_row`.
+
+    Parametry konstruktoru:
+
+    - primary_key_name: název atributu v inputu, ve kterém se očekává primární klíč,
+      výchozí je `"id"`.
+    - getLoader: volitelná funkce `getLoader(info) -> DataLoader`, která vrátí
+      použitý dataloader; pokud není zadána, použije se `GQLModel.getLoader(info)`.
+
+    Použití:
+
+    - Resolver musí mít v signatuře parametr `db_row`, ale v GraphQL schématu
+      se tento argument neobjeví (extension ho skryje).
+    - V seznamu `extensions=[...]` bývá `LoadDataExtension` typicky uvedena
+      jako POSLEDNÍ položka, aby se při vykonávání spustila jako první a měla
+      připravený `db_row` pro všechny následující extensions i resolver.
+    """
+
     def __init__(self, *, primary_key_name: str = "id", getLoader = None):
         self.primary_key_name = primary_key_name
         self.getLoader = getLoader

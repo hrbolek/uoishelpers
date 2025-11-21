@@ -6,7 +6,73 @@ from .TwoStageGenericBaseExtension import TwoStageGenericBaseExtension
 from .CallNextMixin import CallNextMixin
 MISSING = object()
 class UserRoleProviderExtension(TwoStageGenericBaseExtension, CallNextMixin):
+    """
+    Field extension, která na základě `rbacobject_id` a uživatele z kontextu
+    načte seznam rolí uživatele na daném RBAC objektu a předá ho resolveru
+    jako argument `user_roles`.
 
+    Tato extension tvoří střední krok RBAC pipeline:
+    - `LoadDataExtension` nebo `RbacInsertProviderExtension` poskytne `db_row` nebo `rbacobject_id`,
+    - `UserRoleProviderExtension` na základě `rbacobject_id` načte role uživatele,
+    - `UserAccessControlExtension` rozhodne, zda má uživatel oprávnění.
+
+    Chování:
+
+    - V `apply()`:
+      - Očekává, že resolver má v signatuře parametr `user_roles`.
+      - Tento parametr odstraní z GraphQL definice argumentů (`field.arguments`),
+        takže se v API neobjeví, ale resolver jej stále obdrží.
+      - Je to stejné chování jako u ostatních extensions, které vkládají interní
+        hodnoty do resolveru (např. `db_row`, `rbacobject_id`).
+
+    - V `resolve_async()`:
+      1. Z input parametrů (první položka v `kwargs`) vezme `input_params`,
+         aby je mohl použít pro případné chybové hlášky.
+      2. Z `kwargs` získá `rbacobject_id` – ten musí být už dříve vložen jinou extension.
+         - Pokud je `rbacobject_id` `None`, vrací chybu
+           `"rbacobject_id is not set in data_row"`.
+      3. Z kontextu (`info.context`) načte `userRolesForRBACQuery_loader`.
+         - Tento loader je připraven `RolePermissionSchemaExtension`
+           během zpracování GraphQL requestu.
+      4. Získá identitu uživatele pomocí `getUserFromInfo(info)`.
+      5. Sestaví dotazovací parametry:
+
+            {
+                "id": rbacobject_id,
+                "user_id": <id uživatele>
+            }
+
+      6. Zavolá `role_loader.load(params)` a očekává odpověď struktury:
+
+            {"result": [...]}
+
+         kde `result` je seznam rolí uživatele na daném RBAC objektu.
+      7. Pokud odpověď neobsahuje `"result"`, vyvolá interní chybu (assert).
+      8. Získané `user_roles` předá dál voláním:
+
+            await self.call_next_resolve(
+                next_, source, info, user_roles=user_roles, *args, **kwargs
+            )
+
+    Použití:
+
+    - Resolver musí mít signaturu s parametrem `user_roles`, ale tento parametr nebude
+      viditelný v GraphQL API.
+    - Hodí se pro všechny operace, které mají RBAC logiku vázanou na objekt.
+    - V typické RBAC pipeline se umisťuje **mezi** poskytovatele `rbacobject_id`
+      (tj. mezi `RbacProviderExtension` / `RbacInsertProviderExtension`)
+      a samotnou přístupovou kontrolu (`UserAccessControlExtension`):
+
+        extensions = [
+            UserAccessControlExtension(...),     # poslední krok (kontrola rolí)
+            UserRoleProviderExtension(...),      # načtení rolí uživatele
+            RbacProviderExtension(...),          # získání rbacobject_id
+            LoadDataExtension(...),              # načtení db_row
+        ]
+
+      Protože Strawberry spouští extensions v obráceném pořadí, je takto zapsaná
+      pipeline vykonána ve správném logickém sledu.
+    """
     def apply(self, field):
         graphql_disabled_vars = {"user_roles"}
         field_arg_names = {arg.python_name for arg in field.arguments}

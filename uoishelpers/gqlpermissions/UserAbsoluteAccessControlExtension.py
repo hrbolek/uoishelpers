@@ -8,6 +8,85 @@ from .ApplyPermissionCheckRoleDirectiveMixin import PermissionCheckRoleDirective
 from ..resolvers import getUserFromInfo
 
 class UserAbsoluteAccessControlExtension(TwoStageGenericBaseExtension, CallNextMixin):
+    """
+    Field extension určená pro **globální kontrolu přístupu** – tedy takovou,
+    která **není** vázaná na žádný konkrétní RBAC objekt. Místo toho pracuje
+    pouze s globálními rolemi uživatele, které jsou uloženy v `info.context`
+    (typicky `"user": {"roles": [...]}`).
+
+    Použití:
+    - Hodí se pro operace, které nejsou navázané na konkrétní objekt ani
+      databázový řádek – např. generické administrátorské operace.
+    - Na rozdíl od `UserAccessControlExtension` nepotřebuje `rbacobject_id`
+      ani `UserRoleProviderExtension`.
+
+    ----------------------------------------------------------------------
+    CHOVÁNÍ
+    ----------------------------------------------------------------------
+
+    Konstruktor:
+    - `roles: list[str]`
+      - seznam názvů roletype, které jsou povoleny pro provedení operace
+        (např. `["administrátor"]`, `["administrátor", "superuser"]`).
+
+    ----------------------------------------------------------------------
+
+    apply(self, field):
+    - Automaticky přidá schema direktivu
+        @permissionCheckRole(roles=[...], rbacrelated=False)
+      pokud ji pole ještě nemá.
+    - Tím se informace o požadovaných globálních rolích objeví ve schématu.
+    - Stejně jako ostatní extensions odebere z GraphQL API parametr
+      `user_roles`, i když jej resolver může mít v signatuře
+      a extension jej tam později vloží.
+
+    ----------------------------------------------------------------------
+
+    resolve_async(...):
+    1. Pomocí `getUserFromInfo(info)` načte uživatelský objekt z kontextu.
+    2. Získá seznam globálních rolí uživatele (`user["roles"]`).
+       - Pokud `roles` v uživateli chybí → assert chyba konfigurace.
+    3. Najde průnik globálních rolí uživatele s požadovanými rolovými typy:
+
+           matched_roles = [
+               role for role in user_roles
+               if role["roletype"]["name"] in self.roles
+           ]
+
+    4. Pokud je průnik neprázdný:
+       - Význam: uživatel má oprávnění k operaci.
+       - `user_roles` vloží do `kwargs` a zavolá další extension / resolver
+         přes `call_next_resolve(...)`.
+
+    5. Pokud průnik prázdný:
+       - uživatel nemá globální oprávnění k akci,
+       - vrací chybový objekt přes `return_error(...)` s hláškou
+         „you are not authorized“.
+
+    ----------------------------------------------------------------------
+    TYPICKÉ UMÍSTĚNÍ V PIPELINE
+    ----------------------------------------------------------------------
+
+    Protože globální oprávnění nepotřebuje žádné další údaje (nedotazuje se
+    na RBAC objekt ani nevyžaduje rbacobject_id, db_row, atd.), bývá
+    v seznamu `extensions=[...]` obvykle *jedinou* nebo *první* položkou:
+
+        extensions = [
+            UserAbsoluteAccessControlExtension(roles=["administrátor"]),
+        ]
+
+    Strawberry vyhodnocuje extensions od poslední k první, ale protože tato
+    extension nemá závislosti, umístění v seznamu je zpravidla jednoduché.
+
+    ----------------------------------------------------------------------
+    SHRNUTÍ
+
+    - Zajišťuje autorizaci pouze podle **globálních** rolí uživatele.
+    - Nepotřebuje RBAC objekt ani další extensions.
+    - Vkládá `@permissionCheckRole(..., rbacrelated=False)` do schématu.
+    - Pokud uživatel nemá požadovanou roli → vrací standardizovanou GraphQL chybu.
+    - Je ideální pro administrátorské operace a operace mimo RBAC kontext.
+    """    
     def __init__(self, *, roles: list[str]):
         self.roles = roles
         super().__init__()

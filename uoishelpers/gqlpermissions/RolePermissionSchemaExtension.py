@@ -80,6 +80,54 @@ def extract_values_from_batch_result(result):
     return [v for _, v in ordered_items]
 
 class GraphQLBatchLoader(DataLoader):
+    """
+    Batchovací DataLoader pro GraphQL dotazy.
+
+    Umožňuje efektivně načítat více objektů pomocí jednoho GraphQL dotazu.
+    Místo opakovaných dotazů typu:
+
+        query { item(id: "1") { ... } }
+        query { item(id: "2") { ... } }
+        query { item(id: "3") { ... } }
+
+    vytvoří jeden batch dotaz s aliasy:
+
+        query {
+            item1: item(id: "1") { ... }
+            item2: item(id: "2") { ... }
+            item3: item(id: "3") { ... }
+        }
+
+    a po obdržení odpovědi výsledek opět rozdělí do správného pořadí.
+
+    Hlavní vlastnosti:
+
+    - `load(key)`:
+        - `key` je slovník parametrů dotazu.
+        - Aby byl hashovatelný, ukládá se jako `frozenset(key.items())`.
+
+    - `batch_load_fn(keys)`:
+        - klíče rozdělí do skupin podle všech parametrů *kromě id*,
+          takže každý unikátní „kontext“ (např. {user_id: x}) vytvoří
+          samostatný batch,
+        - pro každou skupinu připraví seznam ID a spustí dotaz `_fetch_batch`,
+        - výsledky vrátí ve stejném pořadí, v jakém byly volány `load()`.
+
+    - `_fetch_batch(ids, variables)`:
+        - postaví GraphQL dotaz s více aliasovanými fieldy
+          pomocí `build_batch_query_with_ast(...)`,
+        - pošle jej přes `gqlClient`,
+        - extrahuje hodnoty aliasů ve správném pořadí pomocí
+          `extract_values_from_batch_result(...)`.
+
+    Použití:
+    - Ideální pro RBAC dotazy, kdy chceme najednou zjistit role uživatele
+      nad více objekty nebo provádět paralelní lookupy.
+    - Typicky vytvářen automaticky v `RolePermissionSchemaExtension`
+      a uložen do `info.context`, odkud si jej berou další extensiony
+      (např. `UserRoleProviderExtension`).
+    """
+
     def __init__(self, gqlClient, base_query_str):
         super().__init__()
         self.gqlClient = gqlClient
@@ -171,7 +219,38 @@ GetUserRolesForRBACQuery = """query GetUserRolesForRBACQuery($id: UUID! $user_id
 }"""
 
 class RolePermissionSchemaExtension(SchemaExtension):
+    """
+    Schema extension, která při každém GraphQL requestu připraví v kontextu
+    batch loadery pro práci s RBAC/UG službou.
 
+    Konkrétně v `on_execute()`:
+
+    - Z `context.context` vezme GraphQL klienta `ug_client`.
+    - Vytvoří tři `GraphQLBatchLoader` instance s různými dotazy:
+
+        1) `userCanWithoutState_loader` (TestNoStateAccessQuery)
+           - dotaz: userCanWithoutState(userId, rolesNeeded)
+           - odpovídá na otázku: „Má uživatel nějakou z těchto rolí na daném RBAC objektu?“
+
+        2) `userCanWithState_loader` (TestStateAccessQuery)
+           - dotaz: userCanWithState(userId, access, stateId)
+           - používá se pro přístup, který závisí i na typu přístupu / stavu.
+
+        3) `userRolesForRBACQuery_loader` (GetUserRolesForRBACQuery)
+           - dotaz: roles(userId)
+           - vrací seznam všech rolí uživatele na daném RBAC objektu,
+             včetně informací o roletype a skupině.
+
+    - Tyto loadery uloží do `context.context` pod klíči:
+        - `"userCanWithoutState_loader"`
+        - `"userCanWithState_loader"`
+        - `"userRolesForRBACQuery_loader"`
+
+    Ostatní extensions (např. `UserRoleProviderExtension`) pak tyto loadery
+    používají k efektivnímu batchovému dotazování na UG/RBAC systém v rámci
+    jednoho GraphQL requestu.
+    """
+    
     async def on_execute(self):
         context = self.execution_context
         gqlClient = context.context.get("ug_client", None)
