@@ -111,6 +111,7 @@ extensions = [
     RbacProviderExtension[ErrorType, Model](),
     LoadDataExtension[ErrorType, Model](),
 ]
+```
 
 ### Insert operace s RBAC
 
