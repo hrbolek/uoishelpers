@@ -124,7 +124,7 @@ class UserAbsoluteAccessControlExtension(TwoStageGenericBaseExtension, CallNextM
 
         if matched_roles:
             user_roles = matched_roles
-            kwargs["user_roles"] = user_roles
+            # kwargs["user_roles"] = user_roles
             return await self.call_next_resolve(next_, source, info, user_roles=user_roles, *args, **kwargs)    
 
         return self.return_error(
