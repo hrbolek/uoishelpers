@@ -1,4 +1,5 @@
 import asyncio
+import time
 from aiodataloader import DataLoader
 from collections import defaultdict
 
@@ -79,6 +80,96 @@ def extract_values_from_batch_result(result):
     )
     return [v for _, v in ordered_items]
 
+_MISSING = object()
+
+class L1TTLCache(dict):
+    """
+    Lokální (per-process) TTL cache, kompatibilní s dict API pro aiodataloader cache_map.
+
+    - žádný background task
+    - expirace se kontroluje jen pro dotčený klíč
+    - maxsize je jen pojistka; při přetečení smaže pár expirovaných, jinak pár libovolných
+    """
+
+    def __init__(self, ttl_seconds: float = 15.0, maxsize: int = 10_000):
+        super().__init__()
+        self.ttl = float(ttl_seconds)
+        self.maxsize = int(maxsize)
+        self._expires: dict[Any, float] = {}
+
+    def _now(self) -> float:
+        return time.monotonic()
+
+    def _expired(self, key) -> bool:
+        exp = self._expires.get(key)
+        return exp is not None and exp <= self._now()
+
+    def _purge_if_expired(self, key) -> bool:
+        if self._expired(key):
+            super().pop(key, None)
+            self._expires.pop(key, None)
+            return True
+        return False
+
+    def _maybe_evict(self):
+        if len(self) <= self.maxsize:
+            return
+
+        # 1) zkus vyhodit expirované (rychle)
+        now = self._now()
+        for k in list(self._expires.keys()):
+            if self._expires.get(k, now + 1) <= now:
+                super().pop(k, None)
+                self._expires.pop(k, None)
+                if len(self) <= self.maxsize:
+                    return
+
+        # 2) když pořád přetečeno, smaž pár libovolných (pojistka)
+        overflow = len(self) - self.maxsize
+        if overflow > 0:
+            for k in list(self.keys())[:overflow]:
+                super().pop(k, None)
+                self._expires.pop(k, None)
+
+    # --- dict API ---
+    def __contains__(self, key) -> bool:
+        self._purge_if_expired(key)
+        return super().__contains__(key)
+
+    def get(self, key, default=None):
+        self._purge_if_expired(key)
+        return super().get(key, default)
+
+    def __getitem__(self, key):
+        if self._purge_if_expired(key):
+            raise KeyError(key)
+        return super().__getitem__(key)
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self._expires[key] = self._now() + self.ttl
+        self._maybe_evict()
+
+    def pop(self, key, default=_MISSING):
+        self._expires.pop(key, None)
+        if default is _MISSING:
+            return super().pop(key)
+        return super().pop(key, default)
+
+    def clear(self):
+        self._expires.clear()
+        return super().clear()
+
+def freeze(v):
+    if isinstance(v, dict):
+        return frozenset((k, freeze(val)) for k, val in v.items())
+    if isinstance(v, (list, tuple, set)):
+        return tuple(freeze(x) for x in v)
+    return v
+
+def freeze_key(d: dict):
+    return frozenset((k, freeze(v)) for k, v in d.items())
+
 class GraphQLBatchLoader(DataLoader):
     """
     Batchovací DataLoader pro GraphQL dotazy.
@@ -128,13 +219,14 @@ class GraphQLBatchLoader(DataLoader):
       (např. `UserRoleProviderExtension`).
     """
 
-    def __init__(self, gqlClient, base_query_str):
-        super().__init__()
-        self.gqlClient = gqlClient
+    def __init__(self, gql_client, base_query_str: str, cache_map=None):
+        super().__init__(cache=True, cache_map=cache_map)
+        self.gql_client = gql_client
         self.base_query_str = base_query_str
 
     def load(self, key):
         frozenkey = frozenset(key.items())
+        # frozenkey = freeze_key(key)
         return super().load(frozenkey)
     
     async def batch_load_fn(self, keys):
@@ -171,7 +263,7 @@ class GraphQLBatchLoader(DataLoader):
 
     async def _fetch_batch(self, ids, variables):
         query = build_batch_query_with_ast(self.base_query_str, ids)
-        result = await self.gqlClient(query=query, variables=variables)
+        result = await self.gql_client(query=query, variables=variables)
         return extract_values_from_batch_result(result)
 
 
@@ -218,6 +310,10 @@ GetUserRolesForRBACQuery = """query GetUserRolesForRBACQuery($id: UUID! $user_id
   }
 }"""
 
+USER_CAN_NOSTATE_CACHE = L1TTLCache(ttl_seconds=10, maxsize=20_000)
+USER_CAN_STATE_CACHE   = L1TTLCache(ttl_seconds=10, maxsize=20_000)
+USER_ROLES_CACHE       = L1TTLCache(ttl_seconds=30, maxsize=20_000)
+
 class RolePermissionSchemaExtension(SchemaExtension):
     """
     Schema extension, která při každém GraphQL requestu připraví v kontextu
@@ -255,11 +351,11 @@ class RolePermissionSchemaExtension(SchemaExtension):
         context = self.execution_context
         gqlClient = context.context.get("ug_client", None)
         # assert gqlClient is not None, "ug_client must be provided in context"
-        loader = GraphQLBatchLoader(gqlClient, TestNoStateAccessQuery)
+        loader = GraphQLBatchLoader(gqlClient, TestNoStateAccessQuery, cache_map=USER_CAN_NOSTATE_CACHE)
         context.context["userCanWithoutState_loader"] = loader
-        loader = GraphQLBatchLoader(gqlClient, TestStateAccessQuery)
+        loader = GraphQLBatchLoader(gqlClient, TestStateAccessQuery, cache_map=USER_CAN_STATE_CACHE)
         context.context["userCanWithState_loader"] = loader
-        loader = GraphQLBatchLoader(gqlClient, GetUserRolesForRBACQuery)
+        loader = GraphQLBatchLoader(gqlClient, GetUserRolesForRBACQuery, cache_map=USER_ROLES_CACHE)
         context.context["userRolesForRBACQuery_loader"] = loader
 
         # keyA = {"user_id": "51d101a0-81f1-44ca-8366-6cf51432e8d6", "id": "7533c953-e88b-48a2-a41c-b61631395247", "roles": ("administrátor", )}
