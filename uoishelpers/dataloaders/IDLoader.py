@@ -248,8 +248,7 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
             return registeredresults
         else:
             statement = select(self.dbModel).filter_by(**filters)
-            async with self.asyncio_lock:
-                return await self.execute_select(statement)        
+            return await self.execute_select(statement)        
 
     async def page(self, skip=0, limit=10, where=None, orderby=None, desc=None, extendedfilter=None):
         if where is not None:
