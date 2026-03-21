@@ -1,9 +1,12 @@
 import asyncio
+import uuid
 import time
+import typing
 from aiodataloader import DataLoader
 from collections import defaultdict
 
 from strawberry.extensions import SchemaExtension
+import strawberry
 
 from graphql import parse, print_ast, OperationType
 from graphql.language.ast import (
@@ -266,6 +269,25 @@ class GraphQLBatchLoader(DataLoader):
         result = await self.gql_client(query=query, variables=variables)
         return extract_values_from_batch_result(result)
 
+class LazyLoader:
+    def __init__(self, factory):
+        self._factory = factory
+        self._instance = None
+
+    def _get(self):
+        if self._instance is None:
+            self._instance = self._factory()
+        return self._instance
+
+    def load(self, key):
+        return self._get().load(key)
+    
+
+def reduce_gql_client(gql_client, query):
+    async def func(variables):
+        result = await gql_client(query=query, variables=variables)
+        return result
+    return func
 
 TestNoStateAccessQuery = """query TestNoStateAccess($id: UUID! $user_id: UUID!, $roles: [String!]!) {
   rbacById(id: $id) {
@@ -310,10 +332,52 @@ GetUserRolesForRBACQuery = """query GetUserRolesForRBACQuery($id: UUID! $user_id
   }
 }"""
 
+
+CreateRBACObjectMutation = """
+mutation rbacInsert(
+    $rbacobjectId: UUID! # null, 
+	$mastergroupId: UUID! # null, 
+	$name: String! # null, 
+	$roles: [RoleInsertGQLModel!] # null,
+) {
+  result: rbacInsert(
+	rbac: {
+    id: $rbacobjectId,
+	mastergroupId: $mastergroupId, 
+	name: $name, 
+	# abbreviation: $abbreviation, 
+	roles: $roles}
+  ) {
+    ... on RBACObjectGQLModel { __typename id }
+    ... on RBACObjectGQLModelInsertError { 
+        __typename
+    
+        msg
+        failed
+        code
+        location
+        input
+    }
+  }
+}
+
+# fragment RBACObjectGQLModelInsertError on RBACObjectGQLModelInsertError {
+#   __typename
+  
+#   msg
+#   failed
+#   code
+#   location
+#   input
+# }
+
+"""
 USER_CAN_NOSTATE_CACHE = L1TTLCache(ttl_seconds=10, maxsize=20_000)
 USER_CAN_STATE_CACHE   = L1TTLCache(ttl_seconds=10, maxsize=20_000)
 USER_ROLES_CACHE       = L1TTLCache(ttl_seconds=30, maxsize=20_000)
 
+createRBACObjectMutation_loader_name = "createRBACObjectMutation_loader"
+userRolesForRBACQuery_loader_name = "userRolesForRBACQuery_loader"
 class RolePermissionSchemaExtension(SchemaExtension):
     """
     Schema extension, která při každém GraphQL requestu připraví v kontextu
@@ -356,8 +420,16 @@ class RolePermissionSchemaExtension(SchemaExtension):
         loader = GraphQLBatchLoader(gqlClient, TestStateAccessQuery, cache_map=USER_CAN_STATE_CACHE)
         context.context["userCanWithState_loader"] = loader
         loader = GraphQLBatchLoader(gqlClient, GetUserRolesForRBACQuery, cache_map=USER_ROLES_CACHE)
-        context.context["userRolesForRBACQuery_loader"] = loader
+        context.context[userRolesForRBACQuery_loader_name] = loader
 
+        # loader = GraphQLBatchLoader(gql_client, CreateRBACObjectQuery, cache_map=None)
+        # context.context["CreateRBACObjectQuery_loader"] = loader
+        context.context[createRBACObjectMutation_loader_name] = reduce_gql_client(
+                gqlClient,
+                CreateRBACObjectMutation
+        )
+
+        print(f"{list(context.context.keys())}")
         # keyA = {"user_id": "51d101a0-81f1-44ca-8366-6cf51432e8d6", "id": "7533c953-e88b-48a2-a41c-b61631395247", "roles": ("administrátor", )}
         # keyB = {"user_id": "51d101a0-81f1-44ca-8366-6cf51432e8d6", "id": "8191cee1-8dba-4a2a-b9af-3f986eb0b51a", "roles": ("administrátor", )}
         # contextA = frozenset(keyA.items())
@@ -371,3 +443,56 @@ class RolePermissionSchemaExtension(SchemaExtension):
         # print(f"ExperimentExtension results: {results}")
         yield None
 
+def getRBACCreator(info: strawberry.Info) -> typing.Callable[[typing.Dict[str, typing.Any]], typing.Awaitable[typing.Any]]:
+    """
+    Vrací async factory funkci pro vytvoření RBAC objektu.
+
+    Funkce při zavolání:
+    - lazy inicializuje GraphQLBatchLoader (pokud ještě neexistuje)
+    - zavolá `.load(key)` nad loaderem
+
+    :param info: GraphQL resolver info
+    :return: async funkce (key: dict) -> výsledek GraphQL mutace
+    """
+    context = info.context
+    print(f"{list(context.keys())}")
+    return context[createRBACObjectMutation_loader_name]
+
+
+async def createRBAC(
+    info: strawberry.Info, 
+    mastergroupId: uuid.UUID,
+    rbacobjectId: uuid.UUID=None,
+    name: str="",
+    roles: list[dict]=None
+):
+
+
+    creator = getRBACCreator(info=info)
+    rbac_id = rbacobjectId or uuid.uuid4()
+    rbac = await creator({
+        "rbacobjectId": f"{rbac_id}",
+        "mastergroupId": f"{mastergroupId}",
+        "name": name,
+        "roles": roles or []
+    })
+    data = rbac.get("data", None)
+    assert data is not None, f"Response from UG return no data {rbac}"
+    result = data.get("result", None)
+    assert result is not None, f"No created RBAC object {rbac}"
+    return result
+
+# TODO
+async def loadRoles(
+    info: strawberry.Info, 
+    rbac_id: uuid.UUID, 
+    user_id: uuid.UUID
+):
+    context = info.context
+    loader = context.get(userRolesForRBACQuery_loader_name, None)
+    assert loader is not None, f"{userRolesForRBACQuery_loader_name} loader not found in context, missing RolePermissionSchemaExtension?"
+    response = await loader.load({
+        "id": f"{rbac_id}",
+        "user_id": f"{user_id}"
+    })
+    return response
