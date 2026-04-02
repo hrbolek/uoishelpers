@@ -502,7 +502,7 @@ def createInputs_old(cls):
     #return inputTypes
 
 @strawberry.input(description='''Str filter operators, 
-for field "name" the filters can be 
+for field with str type, the filters can be 
 {"name": {"_eq": "Peter"}}
 {"name": {"_ge": "A"}}
 {"name": {"_gt": "E"}}
