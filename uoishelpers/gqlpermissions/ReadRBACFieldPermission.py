@@ -145,6 +145,71 @@ class ReadRBACFieldPermission(PermissionExtension):
         any: typing.Any = None,
         all: typing.Any = None
     ):
+        """
+        Initialize the RBAC permission extension for a field.
+
+        This constructor supports two mutually exclusive modes:
+
+        1. **Direct RBAC role check** using `roles`, `pk_field_name`,
+        and `loader_getter`.
+        2. **Composed permission evaluation** using `any` or `all`.
+
+        Parameters
+        ----------
+        roles:
+            List of RBAC role names that grant access to the field.
+
+            Required when not using `any` or `all`.
+
+            Example:
+            `["administrator", "editor"]`
+
+        pk_field_name:
+            Name of the attribute on the resolver `source` object that
+            contains the primary key used to load the backing database row.
+
+            Example:
+            `"person_id"`
+
+        loader_getter:
+            Callable accepting `info` and returning a dataloader capable
+            of loading the backing row for the given primary key.
+
+            Example:
+            `lambda info: info.context["person_by_id_loader"]`
+
+        any:
+            Iterable of `ReadRBACFieldPermission` (or compatible) instances.
+
+            Access is granted if **at least one** of the provided permissions
+            grants access.
+
+            Cannot be combined with `roles`, `pk_field_name`, or `loader_getter`.
+
+        all:
+            Iterable of `ReadRBACFieldPermission` (or compatible) instances.
+
+            Access is granted only if **all** of the provided permissions
+            grant access.
+
+            Cannot be combined with `roles`, `pk_field_name`, or `loader_getter`.
+
+        Raises
+        ------
+        ValueError
+            If both `any` and `all` are provided.
+
+        AssertionError
+            If `roles`, `pk_field_name`, or `loader_getter` are provided
+            together with `any` or `all`.
+
+        Notes
+        -----
+        - Exactly one mode must be used:
+            * direct RBAC check (`roles`, `pk_field_name`, `loader_getter`)
+            * or composed permissions (`any` / `all`)
+        - The extension is designed for async execution only.
+        """
         self.roles = roles
         self.pk_field_name = pk_field_name
         self.loader_getter = loader_getter
@@ -165,6 +230,66 @@ class ReadRBACFieldPermission(PermissionExtension):
         self.return_empty_list = False
         self.use_directives = False
 
+    @classmethod
+    def Any(cls, any=None):
+        """
+        Create a permission that succeeds if any nested permission succeeds.
+
+        This is a convenience factory method equivalent to:
+
+        `ReadRBACFieldPermission(any=[...])`
+
+        Parameters
+        ----------
+        any:
+            Iterable of permission instances.
+
+            Each permission must implement `has_permission(...)`.
+
+        Returns
+        -------
+        ReadRBACFieldPermission
+            A composed permission that evaluates to True if at least one
+            nested permission grants access.
+
+        Notes
+        -----
+        - Evaluation is performed concurrently using `asyncio.gather`.
+        - Short-circuiting is not applied; all permissions are evaluated.
+        - Cannot be combined with direct RBAC parameters (`roles`, etc.).
+        """
+        return cls(any=any)
+    
+    @classmethod
+    def All(cls, all=None):
+        """
+        Create a permission that succeeds only if all nested permissions succeed.
+
+        This is a convenience factory method equivalent to:
+
+        `ReadRBACFieldPermission(all=[...])`
+
+        Parameters
+        ----------
+        all:
+            Iterable of permission instances.
+
+            Each permission must implement `has_permission(...)`.
+
+        Returns
+        -------
+        ReadRBACFieldPermission
+            A composed permission that evaluates to True only if all nested
+            permissions grant access.
+
+        Notes
+        -----
+        - Evaluation is performed concurrently using `asyncio.gather`.
+        - Short-circuiting is not applied; all permissions are evaluated.
+        - Cannot be combined with direct RBAC parameters (`roles`, etc.).
+        """
+        return cls(all=all)
+    
     async def has_permission(
         self, 
         source, 
