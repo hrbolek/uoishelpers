@@ -2,6 +2,8 @@ import typing
 import inspect
 import asyncio
 import strawberry
+
+from .helpers import resolve_async_parameter
 from ..resolvers import getUserFromInfo
 
 from functools import cached_property
@@ -210,7 +212,7 @@ class ReadRBACFieldPermission(PermissionExtension):
             * or composed permissions (`any` / `all`)
         - The extension is designed for async execution only.
         """
-        self.roles = roles
+        self.roles = roles or []
         self.pk_field_name = pk_field_name
         self.loader_getter = loader_getter
     
@@ -327,7 +329,8 @@ class ReadRBACFieldPermission(PermissionExtension):
         assert "result" in gql_response, f"query for user roles was not responded properly {gql_response}"
         user_roles = gql_response["result"]
         print(f"User {user} roles for RBAC check: \n{user_roles}", flush=True)
-        matched_roles = [role for role in user_roles if role["roletype"]["name"] in self.roles]
+        needed_roles = await resolve_async_parameter(self.roles)
+        matched_roles = [role for role in user_roles if role["roletype"]["name"] in needed_roles]
 
         return bool(matched_roles)
 

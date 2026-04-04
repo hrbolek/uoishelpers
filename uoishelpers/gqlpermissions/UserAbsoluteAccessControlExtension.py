@@ -2,6 +2,8 @@ import uuid
 import typing
 import strawberry
 
+from .helpers import resolve_async_parameter
+
 from .TwoStageGenericBaseExtension import TwoStageGenericBaseExtension
 from .CallNextMixin import CallNextMixin
 from .ApplyPermissionCheckRoleDirectiveMixin import PermissionCheckRoleDirective
@@ -120,7 +122,8 @@ class UserAbsoluteAccessControlExtension(TwoStageGenericBaseExtension, CallNextM
         user_roles = user.get("roles")
 
         assert user_roles is not None, f"user in context must have roles attribute, check configuration"
-        matched_roles = [role for role in user_roles if role["roletype"]["name"] in self.roles]
+        needed_roles = await resolve_async_parameter(self.roles)
+        matched_roles = [role for role in user_roles if role["roletype"]["name"] in needed_roles]
 
         if matched_roles:
             user_roles = matched_roles

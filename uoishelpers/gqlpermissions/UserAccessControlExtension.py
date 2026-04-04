@@ -1,6 +1,8 @@
 import typing
 import strawberry
 
+from .helpers import resolve_async_parameter
+
 from .TwoStageGenericBaseExtension import TwoStageGenericBaseExtension
 from .CallNextMixin import CallNextMixin
 from .ApplyPermissionCheckRoleDirectiveMixin import ApplyPermissionCheckRoleDirectiveMixin
@@ -94,7 +96,9 @@ class UserAccessControlExtension(TwoStageGenericBaseExtension, ApplyPermissionCh
         user_roles = kwargs.get("user_roles", None)        
         
         assert user_roles is not None, f"Bad configuration of field extensions, missing UserRoleProviderExtension"
-        matched_roles = [role for role in user_roles if role["roletype"]["name"] in self.roles]
+
+        needed_roles = await resolve_async_parameter(self.roles)
+        matched_roles = [role for role in user_roles if role["roletype"]["name"] in needed_roles]
         if matched_roles:
             kwargs["user_roles"] = matched_roles
             return await self.call_next_resolve(next_, source, info, *args, **kwargs)    
