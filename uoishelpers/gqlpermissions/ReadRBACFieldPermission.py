@@ -314,7 +314,7 @@ class ReadRBACFieldPermission(PermissionExtension):
         assert pk_value is not None, f"{type(source).__name__}[{getattr(source, 'id', 'unknown')}].{self.pk_field_name}==None, cannot perform RBAC check without this value, access denied"
         dataRow = await loader.load(pk_value) if loader and pk_value else None
         assert dataRow is not None, f"Data row for RBAC check not found for pk {pk_value} with loader {loader}"
-        rbacobject_id = dataRow.get("rbacobject_id") if dataRow else None
+        rbacobject_id = getattr(dataRow, "rbacobject_id", None) if dataRow else None
         assert rbacobject_id is not None, f"rbacobject_id not found in data row for pk {pk_value}"
         user = getUserFromInfo(info=info)
         role_loader = info.context.get("userRolesForRBACQuery_loader", None)
