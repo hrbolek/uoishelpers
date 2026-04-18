@@ -85,6 +85,21 @@ class UserRoleProviderExtension(TwoStageGenericBaseExtension, CallNextMixin):
 
         field.arguments = [arg for arg in field.arguments if arg.python_name not in graphql_disabled_vars]
 
+    @classmethod
+    async def resolve_user_roles(cls, info: strawberry.types.Info, rbacobject_id: str):
+        role_loader = info.context.get("userRolesForRBACQuery_loader", None)
+        assert role_loader is not None, "userRolesForRBACQuery_loader must be provided in context"
+        user = getUserFromInfo(info=info)
+        params = {
+            "id": rbacobject_id,
+            "user_id": str(user["id"])
+        }
+
+        gql_response = await role_loader.load(params)
+        assert gql_response is not None, f"query for user roles was not responded properly {gql_response}"
+        assert "result" in gql_response, f"query for user roles was not responded properly {gql_response}"
+        return gql_response["result"]
+    
     async def resolve_async(self, next_, source, info: strawberry.types.Info, *args, **kwargs):
         input_params = next(iter(kwargs.values()), None)
         rbacobject_id = kwargs.get("rbacobject_id", None)        
@@ -97,16 +112,6 @@ class UserRoleProviderExtension(TwoStageGenericBaseExtension, CallNextMixin):
                 code="00f53a67-3973-4986-b4ee-5939c21da684",
                 input_data=input_params
             )        
-        role_loader = info.context.get("userRolesForRBACQuery_loader", None)
-        assert role_loader is not None, "userRolesForRBACQuery_loader must be provided in context"
-        user = getUserFromInfo(info=info)
-        params = {
-            "id": rbacobject_id,
-            "user_id": str(user["id"])
-        }
-
-        gql_response = await role_loader.load(params)
-        assert gql_response is not None, f"query for user roles was not responded properly {gql_response}"
-        assert "result" in gql_response, f"query for user roles was not responded properly {gql_response}"
-        user_roles = gql_response["result"]
+        cls = type(self)
+        user_roles = await cls.resolve_user_roles(info=info, rbacobject_id=rbacobject_id)
         return await self.call_next_resolve(next_, source, info, user_roles=user_roles, *args, **kwargs)
