@@ -1,54 +1,246 @@
+import os
+import json
 import functools
 import uuid
-from typing import TypeVar, Generic, Type, Dict, Awaitable
+from typing import TypeVar, Generic, Type, Dict, Awaitable, Optional, Any, Iterable
 from aiodataloader import DataLoader
 
 from sqlalchemy import select, delete
 
 import datetime
-from dataclasses import fields, is_dataclass
 import strawberry
 
 import asyncio
 import time
 from dataclasses import fields, is_dataclass
 
+
+
+# class GlobalTTLCache:
+#     def __init__(self, ttl: float, maxsize: int = 200_000):
+#         self.ttl = ttl
+#         self.maxsize = maxsize
+#         self._data = {}  # key -> (expires_at, value)
+#         self._lock = asyncio.Lock()
+
+#     def _now(self): return time.time()
+
+#     async def get_many(self, keys):
+#         now = self._now()
+#         hit = {}
+#         async with self._lock:
+#             for k in keys:
+#                 item = self._data.get(k)
+#                 if not item:
+#                     continue
+#                 exp, val = item
+#                 if exp <= now:
+#                     self._data.pop(k, None)
+#                     continue
+#                 hit[k] = val
+#         return hit
+
+#     async def set_many(self, mapping):
+#         now = self._now()
+#         async with self._lock:
+#             if len(self._data) > self.maxsize:
+#                 self._data.clear()
+#             exp = now + self.ttl
+#             for k, v in mapping.items():
+#                 self._data[k] = (exp, v)
+
+#     async def invalidate(self, key):
+#         async with self._lock:
+#             self._data.pop(key, None)
+
+
+
+try:
+    import valkey.asyncio as valkey
+except ImportError:
+    valkey = None
+
+
 class GlobalTTLCache:
-    def __init__(self, ttl: float, maxsize: int = 200_000):
+    def __init__(
+        self,
+        ttl: float,
+        maxsize: int = 200_000,
+        *,
+        connection_string: Optional[str] = None,
+        prefix: str = "idLoaderCache:",
+        decode_responses: bool = True,
+    ):
         self.ttl = ttl
         self.maxsize = maxsize
-        self._data = {}  # key -> (expires_at, value)
+        self.prefix = prefix
+
+        self._use_valkey = connection_string is not None and valkey is not None
+
+        # --- Valkey backend ---
+        if self._use_valkey:
+            self._client = valkey.from_url(
+                connection_string,
+                decode_responses=decode_responses,
+            )
+            print(f"GlobalTTLCache using Valkey at {connection_string}")
+        else:
+            self._client = None
+
+        # --- In-memory backend ---
+        self._data = {}
         self._lock = asyncio.Lock()
 
-    def _now(self): return time.time()
+    # ========================
+    # Helpers
+    # ========================
 
-    async def get_many(self, keys):
+    def _now(self):
+        return time.time()
+
+    def _full_key(self, key: str) -> str:
+        return f"{self.prefix}{key}"
+
+    def _json_default(self, value: Any):
+        if isinstance(value, uuid.UUID):
+            return {"__type__": "uuid", "value": str(value)}
+
+        if isinstance(value, datetime.datetime):
+            if value.tzinfo is not None:
+                raise ValueError("Only naive datetime (no timezone) is supported")
+            return {"__type__": "datetime", "value": value.isoformat()}
+
+        raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+    def _json_object_hook(self, obj: dict):
+        t = obj.get("__type__")
+
+        if t == "uuid":
+            return uuid.UUID(obj["value"])
+
+        if t == "datetime":
+            return datetime.datetime.fromisoformat(obj["value"])
+
+        return obj
+
+
+    def _serialize(self, value: Any) -> str:
+        return json.dumps(
+            value,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            default=self._json_default,
+        )
+
+    def _deserialize(self, raw: str) -> Any:
+        return json.loads(raw, object_hook=self._json_object_hook)
+
+    # def _serialize(self, value: Any) -> str:
+    #     return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+    # def _deserialize(self, raw: str) -> Any:
+    #     return json.loads(raw)
+
+    # ========================
+    # Public API
+    # ========================
+
+    async def get_many(self, keys: Iterable[str]) -> dict[str, Any]:
+        keys = list(keys)
+        if not keys:
+            return {}
+
+        # --- Valkey path ---
+        if self._use_valkey:
+            full_keys = [self._full_key(k) for k in keys]
+            values = await self._client.mget(full_keys)
+
+            # print(f"GlobalTTLCache get_many for keys {keys} returned {values}")
+            return {
+                k: self._deserialize(v)
+                for k, v in zip(keys, values)
+                if v is not None
+            }
+        
+            
+
+        # --- In-memory path ---
         now = self._now()
         hit = {}
+
         async with self._lock:
             for k in keys:
                 item = self._data.get(k)
                 if not item:
                     continue
+
                 exp, val = item
                 if exp <= now:
                     self._data.pop(k, None)
                     continue
+
                 hit[k] = val
+
         return hit
 
-    async def set_many(self, mapping):
+    async def set_many(self, mapping: dict[str, Any]) -> None:
+        if not mapping:
+            return
+
+        # --- Valkey path ---
+        if self._use_valkey:
+            ttl_seconds = max(1, int(self.ttl))
+
+            async with self._client.pipeline(transaction=False) as pipe:
+                for key, value in mapping.items():
+                    await pipe.set(
+                        self._full_key(key),
+                        self._serialize(value),
+                        ex=ttl_seconds,
+                    )
+                await pipe.execute()
+            return
+
+        # --- In-memory path ---
         now = self._now()
+
         async with self._lock:
             if len(self._data) > self.maxsize:
                 self._data.clear()
+
             exp = now + self.ttl
             for k, v in mapping.items():
                 self._data[k] = (exp, v)
 
-    async def invalidate(self, key):
+    async def invalidate(self, key: str) -> None:
+        # --- Valkey ---
+        if self._use_valkey:
+            await self._client.delete(self._full_key(key))
+            return
+
+        # --- Memory ---
         async with self._lock:
             self._data.pop(key, None)
+
+    async def invalidate_many(self, keys: Iterable[str]) -> None:
+        keys = list(keys)
+        if not keys:
+            return
+
+        # --- Valkey ---
+        if self._use_valkey:
+            await self._client.delete(*[self._full_key(k) for k in keys])
+            return
+
+        # --- Memory ---
+        async with self._lock:
+            for k in keys:
+                self._data.pop(k, None)
+
+    async def close(self) -> None:
+        if self._use_valkey and self._client:
+            await self._client.aclose()
 
 
 def update(destination, source=None, extraValues={}, UNSET=strawberry.UNSET):
@@ -68,7 +260,11 @@ def update(destination, source=None, extraValues={}, UNSET=strawberry.UNSET):
 
 T = TypeVar("T")
 
-GLOBAL_ENTITY_CACHE = GlobalTTLCache(ttl=20.0)  # příklad
+GLOBAL_ENTITY_CACHE = GlobalTTLCache(
+    ttl=20.0, 
+    connection_string=os.environ.get("VALKEY_CONNECTION_STRING")
+)  # příklad
+
 GLOBAL_ASYNCIO_LOCK = asyncio.Lock()
 
 def detach_entity(entity):
@@ -76,8 +272,17 @@ def detach_entity(entity):
         return None
     if is_dataclass(entity):
         cls = type(entity)
-        return cls(**{f.name: getattr(entity, f.name) for f in fields(entity)})
+        data = {f.name: getattr(entity, f.name) for f in fields(entity)}
+        return data
+        # return cls(**data)
     return entity
+
+def make_entity_cache_key(model: type, entity_id: uuid.UUID) -> str:
+    return f"{model.__name__}:{entity_id}"
+
+def parse_entity_cache_key(key: str) -> tuple[str, uuid.UUID]:
+    model_name, raw_id = key.split(":", 1)
+    return model_name, uuid.UUID(raw_id)
 
 class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
     dbModel: Type[T] = None
@@ -95,9 +300,9 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
         
     @classmethod
     @functools.cache
-    def createFkeySpecificLoader(cls, fkey: str, session=None):
+    def createFkeySpecificLoader(cls, fkey: str, session=None, shared_cache=None):
         """Vytvoří novou podtřídu IDLoader s přednastaveným fkey."""
-        result = FKeyLoader[cls.dbModel](session=session, foreignKeyName=fkey, asyncio_lock=GLOBAL_ASYNCIO_LOCK)
+        result = FKeyLoader[cls.dbModel](session=session, foreignKeyName=fkey, asyncio_lock=GLOBAL_ASYNCIO_LOCK, shared_cache=shared_cache)
         return result
 
     def __init__(self, session, cache_map=None, shared_cache=GLOBAL_ENTITY_CACHE, asyncio_lock=GLOBAL_ASYNCIO_LOCK):
@@ -116,24 +321,24 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
 
     def _invalidate_global(self, id):
         if self.global_entity_cache:
-            return self.global_entity_cache.invalidate((self.dbModel, id))    
+            return self.global_entity_cache.invalidate(make_entity_cache_key(self.dbModel, id))
 
     async def batch_load_fn(self, keys):
         # 1) nejdřív zkus session identity_map (to už děláš)
         entities_in_session = {}
         for key in keys:
-            if self.global_entity_cache:
-                entity = self.session.identity_map.get((self.dbModel, (key,)), None)
-                if entity is not None:
-                    entities_in_session[key] = entity
+            entity = self.session.identity_map.get((self.dbModel, (key,)), None)
+            if entity is not None:
+                entities_in_session[key] = entity
 
         missing_keys = [k for k in keys if k not in entities_in_session]
 
         # 2) globální cache (vrací DETACHED snapshoty)
-        cache_keys = [(self.dbModel, k) for k in missing_keys]
         if self.global_entity_cache:
+            cache_keys = [make_entity_cache_key(self.dbModel, k) for k in missing_keys]
+            dbModel = self.dbModel
             cached = await self.global_entity_cache.get_many(cache_keys)
-            cached_by_id = {k[1]: v for k, v in cached.items()}  # (Model,id) -> snapshot
+            cached_by_id = {parse_entity_cache_key(k)[1]: dbModel(**v) for k, v in cached.items()}  # (Model,id) -> snapshot
         else:
             cached_by_id = {}
 
@@ -152,7 +357,7 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
 
             # uložit do globální cache jako snapshot
             if self.global_entity_cache:
-                to_cache = {(self.dbModel, row.id): detach_entity(row) for row in rows}
+                to_cache = {make_entity_cache_key(self.dbModel, row.id): detach_entity(row) for row in rows}
                 await self.global_entity_cache.set_many(to_cache)
 
         # 4) slož výsledek v pořadí keys
@@ -218,8 +423,8 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
         # commit nevolat zde!
 
     def registerResult(self, result) -> T:
-        self.clear(result.id)
-        self.prime(result.id, result)
+        self.clear(make_entity_cache_key(self.dbModel, result.id))
+        self.prime(make_entity_cache_key(self.dbModel, result.id), detach_entity(result))
         return result
     
     async def execute_select(self, statement):
@@ -231,8 +436,11 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
                 for row in rows.scalars()
             ]
             if self.global_entity_cache:
-                to_cache = {(self.dbModel, row.id): detach_entity(row) for row in result}
+                to_cache = {make_entity_cache_key(self.dbModel, row.id): detach_entity(row) for row in result}
                 await self.global_entity_cache.set_many(to_cache)
+            else:
+                for row in result:
+                    self.registerResult(row)
             return result
     
     async def filter_by(self, **filters):
@@ -241,7 +449,7 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
             
             for key, value in filters.items():
                 break
-            fkeyloader = cls.createFkeySpecificLoader(fkey=key, session=self.session)
+            fkeyloader = cls.createFkeySpecificLoader(fkey=key, session=self.session, shared_cache=self.global_entity_cache)
             results = await fkeyloader.load(value)
             registeredresults = (self.registerResult(result) for result in results)
 
@@ -293,11 +501,13 @@ class FKeyLoader(DataLoader, Generic[T]):
             {"dbModel": item}
         )
         
-    def __init__(self, session, foreignKeyName, asyncio_lock=GLOBAL_ASYNCIO_LOCK):
+    def __init__(self, session, foreignKeyName, asyncio_lock=GLOBAL_ASYNCIO_LOCK, cache_map=None, shared_cache=None):
         super().__init__()
         self.session = session
         self.foreignKeyName = foreignKeyName
         self.asyncio_lock = asyncio_lock
+        self.cache_map = cache_map
+        self.shared_cache = shared_cache
         self.foreignKeyNameAttribute = getattr(self.dbModel, foreignKeyName)
         if not self.dbModel:
             raise ValueError("Model must be specified using FKeyLoader[Model]")
@@ -328,6 +538,9 @@ class FKeyLoader(DataLoader, Generic[T]):
                 groupedResult = []
                 groupedResults[self.foreignKeyName] = groupedResult
             groupedResult.append(row)
+
+        if self.shared_cache is not None:
+            self.shared_cache.set_many({make_entity_cache_key(self.dbModel, row.id): detach_entity(row) for row in rows})
             
         #print(groupedResults)
         return (groupedResults[key] for key in _keys)
