@@ -46,14 +46,14 @@ class StatefulPermissionAccessControlExtension(TwoStageGenericBaseExtension, Cal
     @classmethod
     def read(cls, operation_id: typing.Any=None):
         """
-        Zkrácený název pro `StatefulPermissionAccessControlExtension(operation_id=...)`
+        Zkrácený název pro `StatefulPermissionAccessControlExtension(operation_id=..., read_mode=True)`
         """
         return cls(operation_id=operation_id, read_mode=True)
     
     @classmethod
     def write(cls, operation_id: typing.Any=None):
         """
-        Zkrácený název pro `StatefulPermissionAccessControlExtension(operation_id=...)`
+        Zkrácený název pro `StatefulPermissionAccessControlExtension(operation_id=..., write_mode=True)`
         """
         self = cls(operation_id=operation_id, write_mode=True)
         assert self.GQLModel is not None, "GQLModel must be defined for write access control"
