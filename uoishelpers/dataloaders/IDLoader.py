@@ -378,6 +378,9 @@ class IDLoader(DataLoader[uuid.UUID, T], Generic[T]):
         else:
             newdbrow = self.dbModel()
             newdbrow = update(newdbrow, entity, extraAttributes)
+        if newdbrow.id is None:
+            newdbrow.id = uuid.uuid4()
+            
         await self._invalidate_global(newdbrow.id)
         async with self.asyncio_lock:
             self.session.add(newdbrow)
@@ -540,7 +543,7 @@ class FKeyLoader(DataLoader, Generic[T]):
             groupedResult.append(row)
 
         if self.shared_cache is not None:
-            self.shared_cache.set_many({make_entity_cache_key(self.dbModel, row.id): detach_entity(row) for row in rows})
+            await self.shared_cache.set_many({make_entity_cache_key(self.dbModel, row.id): detach_entity(row) for row in rows})
             
         #print(groupedResults)
         return (groupedResults[key] for key in _keys)
