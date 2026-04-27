@@ -6,8 +6,9 @@ from .helpers import resolve_async_parameter
 from .TwoStageGenericBaseExtension import TwoStageGenericBaseExtension
 from .CallNextMixin import CallNextMixin
 from .ApplyPermissionCheckRoleDirectiveMixin import ApplyPermissionCheckRoleDirectiveMixin
+from .ApplyPermissionCheckRoleDirectiveMixin import PermissionCheckRoleDirective
 
-class UserAccessControlExtension(TwoStageGenericBaseExtension, ApplyPermissionCheckRoleDirectiveMixin, CallNextMixin):
+class UserAccessControlExtension(TwoStageGenericBaseExtension, CallNextMixin):
     """
     Field extension, která provádí finální RBAC kontrolu přístupu na základě
     rolí uživatele (`user_roles`) a seznamu povolených rolí (`self.roles`).
@@ -90,6 +91,15 @@ class UserAccessControlExtension(TwoStageGenericBaseExtension, ApplyPermissionCh
     def __init__(self, *, roles: list[str]):
         self.roles = roles
         super().__init__()
+
+    def apply(self, field):
+        # Pokud pole ještě direktivu nemá, přidáme ji automaticky
+        has_directive = any(isinstance(d, PermissionCheckRoleDirective) for d in field.directives)
+
+        if not has_directive:
+            directive_instance = PermissionCheckRoleDirective(roles=self.roles)
+            # Přidáme direktivu do pole
+            field.directives.append(directive_instance)
 
     async def resolve_async(self, next_, source, info: strawberry.types.Info, *args, **kwargs):
         input_params = next(iter(kwargs.values()), None)
