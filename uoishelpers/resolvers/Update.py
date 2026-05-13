@@ -73,7 +73,7 @@ class Update:
             else:
                 return type_arg.from_dataclass(row)
         except Exception as e:
-            _entity = type_arg.from_dataclass(row)
+            _entity = type_arg.resolve_reference(info=info, id=entity.id)
             code = "5804ee6a-bd15-40e6-9b0b-879c595fec3b"
             location = cls.get_path_string(info.path) if hasattr(info, "path") and info.path else None
 
