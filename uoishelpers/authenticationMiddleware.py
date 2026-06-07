@@ -48,8 +48,8 @@ class BasicAuthBackend(AuthenticationBackend):
         conn.url.path
         logging.debug(f'{base_url} {client}, {headers}, {cookies}')
         logging.debug(f'{uri}')
-        # print(f'{base_url} {client}, {headers}, {cookies}')
-        # print(f'{uri}')        
+        print(f'{base_url} {client}, {headers}, {cookies}')
+        print(f'{uri}')        
         
         # 1. ziskat jwt (cookies authorization nebo header Authorization: Bearer )
         jwtsource = cookies.get("authorization", None)
@@ -86,11 +86,11 @@ class BasicAuthBackend(AuthenticationBackend):
             publickey = await self.getPublicKey()
             print('publickey refreshed', publickey)
         
-        # print('got jwtdecoded', jwtdecoded)
+        print('got jwtdecoded', jwtdecoded)
 
         # 3A. pokud jwt obsahuje user.id, vzit jej primo
         user_id = jwtdecoded.get("user_id", None)
-        # print("some user?", user_id)
+        print("some user?", user_id)
         userinfo = {"id": user_id}
         # 4. pouzit jwt jako parametr pro identifikaci uzivatele u autority
         if user_id is None:
@@ -108,7 +108,7 @@ class BasicAuthBackend(AuthenticationBackend):
         if user_id is None:
             raise AuthenticationError(f"Unknown user")
             
-        # print("# SUCCESS #######################################")
+        print("# SUCCESS #######################################")
         return AuthCredentials(["authenticated"]), userinfo
     
 from starlette.requests import HTTPConnection
@@ -141,11 +141,12 @@ class Item(BaseModel):
 
 apolloQuery = "query __ApolloGetServiceDefinition__ { _service { sdl } }"
 graphiQLQuery = "\n query IntrospectionQuery {\n __schema {\n \n queryType { name }\n mutationType { name }\n subscriptionType { name }\n types {\n ...FullType\n }\n directives {\n name\n description\n \n locations\n args(includeDeprecated: true) {\n ...InputValue\n }\n }\n }\n }\n\n fragment FullType on __Type {\n kind\n name\n description\n \n fields…name\n ofType {\n kind\n name\n ofType {\n kind\n name\n ofType {\n kind\n name\n ofType {\n kind\n name\n ofType {\n kind\n name\n ofType {\n kind\n name\n }\n }\n }\n }\n }\n }\n }\n }\n "
+vsCodeQuery = "query IntrospectionQuery{__schema{queryType{name kind}mutationType{name kind}subscriptionType{name kind}types{...FullType}directives{name description locations args{...InputValue}}}}fragment FullType on __Type{kind name description fields(includeDeprecated:true){name description args{...InputValue}type{...TypeRef}isDeprecated deprecationReason}inputFields{...InputValue}interfaces{...TypeRef}enumValues(includeDeprecated:true){name description isDeprecated deprecationReason}possibleTypes{...TypeRef}}fragment InputValue on __InputValue{name description type{...TypeRef}defaultValue}fragment TypeRef on __Type{kind name ofType{kind name ofType{kind name ofType{kind name ofType{kind name ofType{kind name ofType{kind name ofType{kind name ofType{kind name ofType{kind name}}}}}}}}}}"
 JWTPUBLICKEYURL = "http://localhost:8000/oauth/publickey"
 JWTRESOLVEUSERPATHURL = "http://localhost:8000/oauth/userinfo"
 
 def createAuthentizationSentinel(
-        queriesWOAuthentization = [apolloQuery, graphiQLQuery],
+        queriesWOAuthentization = [apolloQuery, graphiQLQuery, vsCodeQuery],
         JWTPUBLICKEY = JWTPUBLICKEYURL,
         JWTRESOLVEUSERPATH = JWTRESOLVEUSERPATHURL,
         onAuthenticationError = lambda item: JSONResponse(f"{item} unauthorized")
@@ -211,14 +212,12 @@ def createAuthentizationSentinel(
                 else:
                     #unathorized
                     pass
-
             logging.debug(f'Sentinel authentication phase message: token: \n {jwtsource}')
             # print('Sentinel got jwtsource', jwtsource, "\n", self.publickey)
             logging.debug(30*"#")
             if jwtsource is None:
                 logging.debug(f'Sentinel authentication phase message: TOKEN IS MISSING')
                 raise AuthenticationError("missing code")
-            request.scope["jwt"] = jwtsource
 
             # 2. ziskat verejny klic (async request to authority)
             logging.debug("2. ziskat verejny klic (async request to authority)")
